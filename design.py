@@ -56,6 +56,10 @@ class Ui_MainWindow(object):
         self.SaveButton.setObjectName(u"SaveButton")
         self.horizontalLayout.addWidget(self.SaveButton)
 
+        self.applyPrevSaveNext = QPushButton(self.centralwidget)
+        self.applyPrevSaveNext.setObjectName(u"applyPrevSaveNext")
+        self.horizontalLayout.addWidget(self.applyPrevSaveNext)
+
         self.googleTakeOutButton = QPushButton(self.centralwidget)
         self.googleTakeOutButton.setObjectName(u"googleTakeOutButton")
         self.horizontalLayout.addWidget(self.googleTakeOutButton)
@@ -148,6 +152,7 @@ class Ui_MainWindow(object):
         self.folderSelectButton.setText(_translate("MainWindow", "Select Folder"))
         self.previousButton.setText(_translate("MainWindow", "<"))
         self.SaveButton.setText(_translate("MainWindow", "Save and next"))
+        self.applyPrevSaveNext.setText(_translate("MainWindow", "Apply Prev, Save, Next"))        
         self.googleTakeOutButton.setText(_translate("MainWindow", u"Enable Google Takeout", None))
         self.clearGoogleTakeOutButton.setText(_translate("MainWindow", u"Disable Google Takeout", None))
         

@@ -55,6 +55,7 @@ class Window(QMainWindow, Ui_MainWindow):
         
         self.actionAbout.triggered.connect(self.show_contact_info)
 
+        self.applyPrevSaveNext.clicked.connect(self.handle_applyPrevSaveNextButton)
         
         self.googleTakeOutButton.clicked.connect(self.select_folderTakeOutFile)
 
@@ -365,6 +366,18 @@ class Window(QMainWindow, Ui_MainWindow):
             self.createAlert("No no file selected nothing will be processed")
             return
 
+    
+
+    def handle_applyPrevSaveNextButton(self):
+        """
+        Handles the action when the "Previous, Save, Next" button is clicked.
+        This function updates the selected coordinates with the previous coordinates if they exist.
+        It removes any existing markers from the map and adds new markers for the previous and original coordinates.
+        It also updates the map location to center around the previous coordinates.
+        If there are no previous coordinates, it displays an alert message.
+        """
+        self.handle_applyPreviousButton()
+        self.handle_saveButton()
         
 
 
