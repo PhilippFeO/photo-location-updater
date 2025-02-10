@@ -1,7 +1,7 @@
 import os
 import sys
 from metadataHandler import get_image_metadata, apply_metadata_to_image
-from locationHistoryLoader import parse_json_file, get_closest_location
+from locationHistoryLoader import parse_json_file,parse_json_file_v2, get_closest_location,get_closest_location_v2
 from design import Ui_MainWindow
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QListWidgetItem, QMessageBox, QTreeWidgetItem
@@ -305,7 +305,7 @@ class Window(QMainWindow, Ui_MainWindow):
 
 
     def set_image_aproximated_location(self, metadata):
-        closestLocation = get_closest_location(takeOutData, metadata['CreatedDate'])
+        closestLocation = get_closest_location_v2(takeOutData, metadata['CreatedDate'])
         if closestLocation[0] == None:
             return
         else:
@@ -352,7 +352,7 @@ class Window(QMainWindow, Ui_MainWindow):
         #file_path = QFileDialog.getOpenFileName(self, 'Select Takeout File', '', 'JSON Files (*.json)')
         if file_path:
             try:
-                takeOutData = parse_json_file(file_path)
+                takeOutData = parse_json_file_v2(file_path)
             except:
                 self.createAlert("Invalid Takeout file")
             
