@@ -112,7 +112,8 @@ def get_closest_location_v2(data, target_timestamp):
             closest_location = entry
 
     distanceInMinutes = closest_distance / 60
+    closest_location["DistanceInMinutes"] = distanceInMinutes
     if closest_location:
-        return closest_location["Latitude"], closest_location["Longitude"], distanceInMinutes
+        return closest_location
     else:
-        return None, None, None
+        return None
