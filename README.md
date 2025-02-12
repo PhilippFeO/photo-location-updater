@@ -105,13 +105,7 @@ This project would not have been possible without the OpenStreetMap:
 
 - [OpenStreetMap](https://www.openstreetmap.org/)
 
-Keywords
 
-    Exif GPS Editor
-    Geotagging Tool
-    Photo Metadata Editor
-    Update Photo Coordinates
-    EXIF Metadata
 
 ## Thanks
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/rick45)
