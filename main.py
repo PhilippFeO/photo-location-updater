@@ -379,7 +379,8 @@ class Window(QMainWindow, Ui_MainWindow):
             if fileloaded:
                 if takeOutData != None:
                     self.createAlert("Takeout file loaded successfully, if there is no location metadata in the photo, the system will use the takeout data to get the closest location for the photo created date")
-                
+                    self.show_image(self.fileListWidget.currentItem())
+
                 if takeOutData == None:
                     self.createAlert("No Data Found in the Takeout file")
             
@@ -464,11 +465,11 @@ class Window(QMainWindow, Ui_MainWindow):
         days, remainder = divmod(distanceInMinutes, 1440)  # 1440 minutes in a day
         hours, minutes = divmod(remainder, 60)
         if days > 0:
-            return f"Calculated location have {int(days)} Days {int(hours):02d} Hours {int(minutes):02d} Minutes difference from the photo taken date."
+            return f"The calculated location differs from the photos taken date by {int(days)} day {int(hours):02d} hours and {int(minutes):02d} minutes."
         elif hours > 0:
-            return f"Calculated location have {int(hours):02d} Hours {int(minutes):02d} Minutes difference from the photo taken date."
+            return f"The calculated location differs from the photos taken date by {int(hours):02d} hours and {int(minutes):02d} minutes."
         else:
-            return f"Calculated location have {int(minutes)} Minutes difference from the photo taken date."
+            return f"The calculated location differs from the photos taken date by {int(minutes):02d} minutes."
   
 
 app = QApplication(sys.argv)

@@ -5,7 +5,8 @@ from datetime import datetime
 
 def splitGoogleTakeOut(file_path): 
     parsed_data = googleTakeOutSplitter(file_path)
-    output_folder = os.path.join(os.path.dirname(file_path), 'TakeOutOutput')
+    current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_folder = os.path.join(os.path.dirname(file_path), f'TakeOutOutput_{current_time}')
     save_locations_by_month(parsed_data, output_folder)
 
 
