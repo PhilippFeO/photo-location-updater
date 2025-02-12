@@ -379,7 +379,8 @@ class Window(QMainWindow, Ui_MainWindow):
             if fileloaded:
                 if takeOutData != None:
                     self.createAlert("Takeout file loaded successfully, if there is no location metadata in the photo, the system will use the takeout data to get the closest location for the photo created date")
-                    self.show_image(self.fileListWidget.currentItem())
+                    if self.fileListWidget.currentItem():
+                        self.show_image(self.fileListWidget.currentItem())
 
                 if takeOutData == None:
                     self.createAlert("No Data Found in the Takeout file")
