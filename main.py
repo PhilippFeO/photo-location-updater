@@ -1,7 +1,8 @@
 import os
 import sys
 from metadataHandler import get_image_metadata, apply_metadata_to_image
-from locationHistoryLoader import parse_json_file, get_closest_location
+from locationHistoryLoader import parse_json_file_v2, get_closest_location_v2, get_file_size
+from googleTakeOutSplitter import splitGoogleTakeOut
 from design import Ui_MainWindow
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QListWidgetItem, QMessageBox, QTreeWidgetItem
@@ -14,6 +15,7 @@ from contactDialog import *
 selectedCoordinates = None
 previousCoordinates = None
 originalCoordinates = None
+takeoutClosestLocation = None
 takeOutData = None
 
 class Handler(QObject):
@@ -66,6 +68,7 @@ class Window(QMainWindow, Ui_MainWindow):
         self.fileListWidget.itemClicked.connect(self.show_image)
 
         self.gpsFilesListWidget.itemClicked.connect(self.loadTakeOutFile)
+
 
     def select_clearTakoutFile(self):
         global takeOutData
@@ -271,6 +274,8 @@ class Window(QMainWindow, Ui_MainWindow):
         if(metadata.__len__() == 1 and 'CreatedDate' in metadata and takeOutData != None):
             self.set_image_aproximated_location(metadata)
             return
+        elif('CreatedDate' in metadata and takeOutData != None):
+            self.set_image_location_and_aproximated_location(metadata,takeOutData)
         else:
             self.set_image_location(metadata)
 
@@ -305,22 +310,23 @@ class Window(QMainWindow, Ui_MainWindow):
 
 
     def set_image_aproximated_location(self, metadata):
-        closestLocation = get_closest_location(takeOutData, metadata['CreatedDate'])
-        if closestLocation[0] == None:
+        closestLocation = get_closest_location_v2(takeOutData, metadata['CreatedDate'])
+        if closestLocation == None:
             return
         else:
             # Remove all existing markers
+            takeoutClosestLocation = closestLocation
             self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
             self.mapViewWidget.page().runJavaScript("closePopup();")
             global selectedCoordinates
             # Set the image location on the map
-            lat = closestLocation[0]
-            lng = closestLocation[1]
+            lat = closestLocation['Latitude']
+            lng = closestLocation['Longitude']
             selectedCoordinates = (lat, lng)
-            distanceInMinutes = round(closestLocation[2], 2)
+            distanceInMinutes = round(closestLocation['DistanceInMinutes'], 2)
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation({lat}, {lng}, 15);")
-            hours, minutes = divmod(distanceInMinutes, 60)
-            jscode = str(f"L.marker([{lat},{lng}], {{icon: calculatedLocation}}).addTo(map).bindPopup('Calculated location have {int(hours):02d}H{int(minutes):02d}M difference from the photo taken date. Location: {round(lat, 8)}, {round(lng, 8)}');")
+            timeDifferenceMessage = self.buildStringMessageOfTimeDifference(distanceInMinutes)
+            jscode = str(f"L.marker([{closestLocation['Latitude']},{closestLocation['Longitude']}], {{icon: calculatedLocation}}).addTo(map).bindPopup('{timeDifferenceMessage} Location: {round(closestLocation['Latitude'], 8)}, {round(closestLocation['Longitude'], 8)}');")
             self.mapViewWidget.page().runJavaScript(jscode)
 
 
@@ -348,18 +354,36 @@ class Window(QMainWindow, Ui_MainWindow):
 
         global takeOutData
         
+        fileloaded = False
         file_path = item.data(0, Qt.ItemDataRole.UserRole)
         #file_path = QFileDialog.getOpenFileName(self, 'Select Takeout File', '', 'JSON Files (*.json)')
         if file_path:
             try:
-                takeOutData = parse_json_file(file_path)
+                file_size_mb = get_file_size(file_path)
+                
+                if file_size_mb > 2:
+                    shouldSplit = self.splitGoogleTakeoutFileAlert(f"File size of {file_size_mb:.2f} MB can take a while to process, do you want to split it by month?")
+                    if shouldSplit:
+                        splitGoogleTakeOut(file_path)
+                        self.createAlert("Split Successful, Please select the folder again to load the files. \n Files are saved in the same folder as the original file inside a folder named TakeOutOutput")
+                    else:
+                        takeOutData = parse_json_file_v2(file_path)
+                        fileloaded = True
+                else:
+                    takeOutData = parse_json_file_v2(file_path)
+                    fileloaded = True
+                
             except:
                 self.createAlert("Invalid Takeout file")
-            
-            if takeOutData == None:
-                self.show_image(self.fileListWidget.currentItem())
-                self.createAlert("Takeout file loaded successfully, if there is no location metadata in the photo, the system will use the takeout data to get the closest location for the photo created date")
-            
+                
+            if fileloaded:
+                if takeOutData != None:
+                    self.createAlert("Takeout file loaded successfully, if there is no location metadata in the photo, the system will use the takeout data to get the closest location for the photo created date")
+                    if self.fileListWidget.currentItem():
+                        self.show_image(self.fileListWidget.currentItem())
+
+                if takeOutData == None:
+                    self.createAlert("No Data Found in the Takeout file")
             
 
         else:
@@ -379,7 +403,75 @@ class Window(QMainWindow, Ui_MainWindow):
         self.handle_applyPreviousButton()
         self.handle_saveButton()
         
+    def splitGoogleTakeoutFileAlert(self, message):
+        """
+        Display an alert with two options and return the selected option.
 
+        Parameters:
+        - message (str): The message to be displayed in the alert.
+        - option1 (str): The text for the first option button.
+        - option2 (str): The text for the second option button.
+
+        Returns:
+        - str: The text of the selected option.
+        """
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setText(message)
+        msg.setWindowTitle("Alert")
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.button(QMessageBox.StandardButton.Yes).setText('Yes')
+        msg.button(QMessageBox.StandardButton.No).setText('No')
+        
+        result = msg.exec()
+
+        if result == QMessageBox.StandardButton.Yes:
+            return True
+        else:
+            return False
+
+    def set_image_location_and_aproximated_location(self, metadata, takeoutData):
+        # TODO: implement this method to show the image location and the aproximated location from the takeout file
+        
+        closestLocation = {}
+        closestLocation = get_closest_location_v2(takeOutData, metadata['CreatedDate'])
+        
+        self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
+        self.mapViewWidget.page().runJavaScript("closePopup();")
+
+        latRounded = round(metadata['GPSLatitude'], 8)
+        lngRounded  = round(metadata['GPSLongitude'], 8)
+        jscode = str(f"L.marker([{metadata['GPSLatitude']},{metadata['GPSLongitude']}], {{icon: newLocationIcon}}).addTo(map).bindPopup('Location: {latRounded}, {lngRounded}');")
+        self.mapViewWidget.page().runJavaScript(jscode)  # Add marker to the map with info
+
+        
+        distanceInMinutes = round(closestLocation['DistanceInMinutes'], 2)
+        timeDifferenceMessage = self.buildStringMessageOfTimeDifference(distanceInMinutes)
+        jscode = str(f"L.marker([{closestLocation['Latitude']},{closestLocation['Longitude']}], {{icon: calculatedLocation}}).addTo(map).bindPopup('{timeDifferenceMessage} Location: {round(closestLocation['Latitude'], 8)}, {round(closestLocation['Longitude'], 8)}');")
+        self.mapViewWidget.page().runJavaScript(jscode)
+
+
+        #self.mapViewWidget.page().runJavaScript(f"updateMapLocation({previousCoordinates[0]}, {previousCoordinates[1]}, 15);")
+
+        # Adjust the map view to show both markers
+        self.mapViewWidget.page().runJavaScript(f"""
+            var bounds = L.latLngBounds([
+                [{metadata['GPSLatitude']}, {metadata['GPSLongitude']}],
+                [{closestLocation['Latitude']}, {closestLocation['Longitude']}]
+            ]);
+            map.fitBounds(bounds);
+        """)
+    
+    def buildStringMessageOfTimeDifference(self, distanceInMinutes):
+        days, remainder = divmod(distanceInMinutes, 1440)  # 1440 minutes in a day
+        hours, minutes = divmod(remainder, 60)
+        if days > 0:
+            return f"The calculated location differs from the photos taken date by {int(days)} day {int(hours):02d} hours and {int(minutes):02d} minutes."
+        elif hours > 0:
+            return f"The calculated location differs from the photos taken date by {int(hours):02d} hours and {int(minutes):02d} minutes."
+        else:
+            return f"The calculated location differs from the photos taken date by {int(minutes):02d} minutes."
+  
 
 app = QApplication(sys.argv)
 window = Window()

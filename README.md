@@ -81,24 +81,22 @@ Optionally you can load the google takeout files using the Enable Google Takeout
 
 
 ## How to Request Location Data from Google Takeout
+Google changed the Location History data to be available only on the mobile device, this now needs to be done on the google maps app:
 
-1. Go to Google Takeout: Visit Google Takeout and sign in with your Google account.
+1. Google Maps home screen 
+2. Profile picture (top right)
+3. Settings
+4. Google location settings
+5. Location Services
+6. Timeline
+7. Export Timeline data
 
-2. Select Data to Include:
+This will give you a big Json file, when firt loading it the app will ask you to split it by month. This is advised as using the full file have all you location history and the apps takes some time to run it to find the closest location.
+The app will keep te original file untouched but will generate a new folder with a file structure of an folder with the year and one file by each month.
 
-3. Click on "Deselect all" to clear all selections.
-4. Scroll down and find "Location History".
-5. Check the box next to "Location History".
-6. Choose File Type, Frequency & Destination:
+After successfully selecting and loading a takeout file the map will now show a new icon with a question mark (?) with the locationt closest to the date where the photo was taken. 
 
-7. Click on "Next step".
-8. Choose the delivery method, export frequency, file type and size.
-9. Click on "Create export".
-
-Google will prepare your data, which may take some time depending on the amount of data.
-Once the export is ready, you will receive an email with a download link.
-Download the .zip file and extract it to a folder on your computer.
-This folder can be selected and all the files will be listed in the application to be used.
+![app](./src/calculated_location.jpg)
 
 
 ## Acknowledgements
