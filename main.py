@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QListWidgetI
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtGui import QPixmap, QImageReader
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWidgets import QProgressDialog
 from contactDialog import *
 
 #global vars
@@ -59,6 +60,8 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.applyPrevSaveNext.clicked.connect(self.handle_applyPrevSaveNextButton)
         
+        self.applyToAllOutButton.clicked.connect(self.handle_applyToAllOutButton)
+
         self.googleTakeOutButton.clicked.connect(self.select_folderTakeOutFile)
 
         self.clearGoogleTakeOutButton.clicked.connect(self.select_clearTakoutFile)
@@ -69,6 +72,45 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.gpsFilesListWidget.itemClicked.connect(self.loadTakeOutFile)
 
+    
+    def handle_applyToAllOutButton(self):
+        """
+        Handles the action when the "Apply to All" button is clicked.
+        This function applies the selected coordinates to all images in the file list widget.
+        It iterates through each item in the file list widget, retrieves its metadata, and applies the selected coordinates to each image.
+        If no coordinates are selected, it displays an alert message.
+        """
+        global selectedCoordinates
+        if selectedCoordinates is not None:
+            total_items = self.fileListWidget.count()
+            
+            # Create a progress dialog
+            progress_dialog = QProgressDialog("Applying coordinates to all images...", "Cancel", 0, total_items, self)
+            progress_dialog.setWindowTitle("Processing")
+            progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress_dialog.setValue(0)
+            progress_dialog.show()
+    
+            for i in range(total_items):
+                if progress_dialog.wasCanceled():
+                    self.createAlert("Operation canceled by the user.")
+                    break
+    
+                item = self.fileListWidget.item(i)
+                imagePath = item.data(1)
+                metadata = get_image_metadata(imagePath)
+                metadata['GPSLatitude'] = selectedCoordinates[0]
+                metadata['GPSLongitude'] = selectedCoordinates[1]
+                apply_metadata_to_image(imagePath, metadata)
+    
+                # Update progress
+                progress_dialog.setValue(i + 1)
+    
+            progress_dialog.close()
+            self.createAlert("All images have been updated with the selected coordinates.")
+        else:
+            self.createAlert("No Coordinates selected.")
+            return
 
     def select_clearTakoutFile(self):
         global takeOutData
