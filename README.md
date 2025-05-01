@@ -10,7 +10,6 @@ A simple tool to seamlessly update the geolocation metadata of your photos using
 **Important:** This tool results in data modification. It is highly recommended that a data backup be performed before executing the script. The script's author is not responsible for any data loss or damage that may occur during the execution of this script.
 
 ## Features
-- 📂 Select a folder containing photos
 - 🌍 View and update photo geolocation on an interactive map
 - 🤖 Automate geolocation updates using Google Takeout data
 - 💾 Save updated metadata easily
@@ -105,13 +104,7 @@ This project would not have been possible without the OpenStreetMap:
 
 - [OpenStreetMap](https://www.openstreetmap.org/)
 
-Keywords
 
-    Exif GPS Editor
-    Geotagging Tool
-    Photo Metadata Editor
-    Update Photo Coordinates
-    EXIF Metadata
 
 ## Thanks
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/rick45)
