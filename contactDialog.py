@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel,QApplication
+from version import __version__
 
 
 class ContactDialog(QDialog):
@@ -9,7 +10,7 @@ class ContactDialog(QDialog):
         
         layout = QVBoxLayout()
 
-        version = QLabel("App Information:\nBuilt by: Rick45\nVersion: 1.5.0")
+        version = QLabel(f"App Information:\nBuilt by: Rick45\nVersion: {__version__}")
         layout.addWidget(version)
         
         # Add a QLabel with a clickable URL
