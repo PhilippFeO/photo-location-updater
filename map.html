@@ -63,16 +63,96 @@
                             if (popup) {
                                 map.closePopup(popup);
                             }
-                            popup = L.popup()
-                                .setLatLng(e.latlng)
-                                .setContent("New Photo Location: (" + e.latlng.lat.toFixed(8) + ", " + e.latlng.lng.toFixed(8) + ")")
-                                .openOn(map);
                             var lat = e.latlng.lat;
                             var lng = e.latlng.lng;
-                            new QWebChannel(qt.webChannelTransport, function(channel) {
-                                channel.objects.handler.receiveCoordinates(lat, lng);
-                            });
+                            
+                            // Fetch location data using Nominatim reverse geocoding
+                            fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lng)
+                                .then(response => response.json())
+                                .then(data => {
+                                    var address = data.address || {};
+                                    var country = address.country || 'Unknown';
+                                    var country_code = address.country_code ? address.country_code.toUpperCase() : 'N/A';
+                                    var city = address.city || address.town || address.village || address.county || 'Unknown';
+                                    
+                                    var popupContent = '<div style="font-size: 12px;">' +
+                                        '<strong>Coordinates:</strong><br>' +
+                                        lat.toFixed(8) + ', ' + lng.toFixed(8) + '<br><br>' +
+                                        '<strong>Location:</strong><br>' +
+                                        'Country: ' + country + '<br>' +
+                                        'Country Code: ' + country_code + '<br>' +
+                                        'City: ' + city +
+                                        '</div>';
+                                    
+                                    popup = L.popup()
+                                        .setLatLng(e.latlng)
+                                        .setContent(popupContent)
+                                        .openOn(map);
+                                    
+                                    // Send coordinates to Python
+                                    new QWebChannel(qt.webChannelTransport, function(channel) {
+                                        channel.objects.handler.receiveCoordinates(lat, lng);
+                                    });
+                                })
+                                .catch(error => {
+                                    console.error('Error fetching location:', error);
+                                    // Fallback popup if geocoding fails
+                                    popup = L.popup()
+                                        .setLatLng(e.latlng)
+                                        .setContent("New Photo Location: (" + lat.toFixed(8) + ", " + lng.toFixed(8) + ")")
+                                        .openOn(map);
+                                    
+                                    // Still send coordinates to Python
+                                    new QWebChannel(qt.webChannelTransport, function(channel) {
+                                        channel.objects.handler.receiveCoordinates(lat, lng);
+                                    });
+                                });
                         });
+
+                        // Function to add marker with location data
+                        function addMarkerWithLocationData(lat, lng, markerType) {
+                            var iconToUse = newLocationIcon;
+                            var titlePrefix = 'New Location';
+                            
+                            if (markerType === 'old') {
+                                iconToUse = oldLocationIcon;
+                                titlePrefix = 'Original Location';
+                            } else if (markerType === 'calculated') {
+                                iconToUse = calculatedLocation;
+                                titlePrefix = 'Calculated Location';
+                            }
+                            
+                            // Fetch location data using Nominatim reverse geocoding
+                            fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lng)
+                                .then(response => response.json())
+                                .then(data => {
+                                    var address = data.address || {};
+                                    var country = address.country || 'Unknown';
+                                    var country_code = address.country_code ? address.country_code.toUpperCase() : 'N/A';
+                                    var city = address.city || address.town || address.village || address.county || 'Unknown';
+                                    
+                                    var popupContent = '<div style="font-size: 12px;">' +
+                                        '<strong>' + titlePrefix + ':</strong><br>' +
+                                        lat.toFixed(8) + ', ' + lng.toFixed(8) + '<br><br>' +
+                                        '<strong>Location:</strong><br>' +
+                                        'Country: ' + country + '<br>' +
+                                        'Country Code: ' + country_code + '<br>' +
+                                        'City: ' + city +
+                                        '</div>';
+                                    
+                                    L.marker([lat, lng], {icon: iconToUse}).addTo(map).bindPopup(popupContent);
+                                })
+                                .catch(error => {
+                                    console.error('Error fetching location:', error);
+                                    // Fallback popup if geocoding fails
+                                    var popupContent = '<div style="font-size: 12px;">' +
+                                        '<strong>' + titlePrefix + ':</strong><br>' +
+                                        lat.toFixed(8) + ', ' + lng.toFixed(8) +
+                                        '</div>';
+                                    
+                                    L.marker([lat, lng], {icon: iconToUse}).addTo(map).bindPopup(popupContent);
+                                });
+                        }
 
                         // Function to update map location from Python
                         function updateMapLocation(lat, lng, zoom) {
@@ -86,11 +166,10 @@
                             }
                         }
 
-                        // Expose the function to the QWebChannel
+                        // Expose the functions to the QWebChannel
                         window.closePopup = closePopup;
-
-                        // Expose the function to the QWebChannel
                         window.updateMapLocation = updateMapLocation;
+                        window.addMarkerWithLocationData = addMarkerWithLocationData;
                     </script>
                 </body>
                 </html>

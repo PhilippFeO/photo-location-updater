@@ -181,11 +181,11 @@ class Window(QMainWindow, Ui_MainWindow):
             selectedCoordinates = previousCoordinates
             self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
             self.mapViewWidget.page().runJavaScript("closePopup();")
-            self.mapViewWidget.page().runJavaScript(f"L.marker([{previousCoordinates[0]},{previousCoordinates[1]}], {{icon: newLocationIcon}}).addTo(map).bindPopup('New Location: {round(previousCoordinates[0], 8)}, {round(previousCoordinates[1], 8)}');")  # Add marker to the map with info
+            self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({previousCoordinates[0]}, {previousCoordinates[1]}, 'new');")
             
 
             if originalCoordinates != None:
-                self.mapViewWidget.page().runJavaScript(f"L.marker([{originalCoordinates[0]},{originalCoordinates[1]}], {{icon: oldLocationIcon}}).addTo(map).bindPopup('Original Location: {round(originalCoordinates[0], 8)}, {round(originalCoordinates[1], 8)}');")  # Add marker to the map with info
+                self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({originalCoordinates[0]}, {originalCoordinates[1]}, 'old');")
             
             #self.mapViewWidget.page().runJavaScript(f"updateMapLocation({previousCoordinates[0]}, {previousCoordinates[1]}, 15);")
 
@@ -343,10 +343,7 @@ class Window(QMainWindow, Ui_MainWindow):
             lng = metadata['GPSLongitude']
             originalCoordinates= (lat, lng)
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation({lat}, {lng}, 15);")
-            latRounded = round(lat, 8)
-            lngRounded  = round(lng, 8)
-            jscode = str(f"L.marker([{lat},{lng}], {{icon: newLocationIcon}}).addTo(map).bindPopup('Location: {latRounded}, {lngRounded}');")
-            self.mapViewWidget.page().runJavaScript(jscode)  # Add marker to the map with info
+            self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({lat}, {lng}, 'new');")
         else:
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation(0, 0, 2);")
 
@@ -367,9 +364,8 @@ class Window(QMainWindow, Ui_MainWindow):
             selectedCoordinates = (lat, lng)
             distanceInMinutes = round(closestLocation['DistanceInMinutes'], 2)
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation({lat}, {lng}, 15);")
-            timeDifferenceMessage = self.buildStringMessageOfTimeDifference(distanceInMinutes)
-            jscode = str(f"L.marker([{closestLocation['Latitude']},{closestLocation['Longitude']}], {{icon: calculatedLocation}}).addTo(map).bindPopup('{timeDifferenceMessage} Location: {round(closestLocation['Latitude'], 8)}, {round(closestLocation['Longitude'], 8)}');")
-            self.mapViewWidget.page().runJavaScript(jscode)
+            # Use the new function that fetches location data automatically
+            self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({lat}, {lng}, 'calculated');")
 
 
     def select_folderTakeOutFile(self):
@@ -481,17 +477,11 @@ class Window(QMainWindow, Ui_MainWindow):
         self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
         self.mapViewWidget.page().runJavaScript("closePopup();")
 
-        latRounded = round(metadata['GPSLatitude'], 8)
-        lngRounded  = round(metadata['GPSLongitude'], 8)
-        jscode = str(f"L.marker([{metadata['GPSLatitude']},{metadata['GPSLongitude']}], {{icon: newLocationIcon}}).addTo(map).bindPopup('Location: {latRounded}, {lngRounded}');")
-        self.mapViewWidget.page().runJavaScript(jscode)  # Add marker to the map with info
+        # Add marker for original location with location data
+        self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({metadata['GPSLatitude']}, {metadata['GPSLongitude']}, 'new');")
 
-        
-        distanceInMinutes = round(closestLocation['DistanceInMinutes'], 2)
-        timeDifferenceMessage = self.buildStringMessageOfTimeDifference(distanceInMinutes)
-        jscode = str(f"L.marker([{closestLocation['Latitude']},{closestLocation['Longitude']}], {{icon: calculatedLocation}}).addTo(map).bindPopup('{timeDifferenceMessage} Location: {round(closestLocation['Latitude'], 8)}, {round(closestLocation['Longitude'], 8)}');")
-        self.mapViewWidget.page().runJavaScript(jscode)
-
+        # Add marker for calculated location with location data
+        self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({closestLocation['Latitude']}, {closestLocation['Longitude']}, 'calculated');")
 
         #self.mapViewWidget.page().runJavaScript(f"updateMapLocation({previousCoordinates[0]}, {previousCoordinates[1]}, 15);")
 
