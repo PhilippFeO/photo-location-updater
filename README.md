@@ -139,9 +139,10 @@ After loading a takeout file, map can show a question-mark marker for closest lo
 
 ## Acknowledgements
 
-This project would not have been possible without the OpenStreetMap:
+This project would not have been possible without:
 
 - [OpenStreetMap](https://www.openstreetmap.org/)
+- [Nominatim](https://nominatim.openstreetmap.org/)
 
 
 
