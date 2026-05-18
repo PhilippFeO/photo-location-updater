@@ -1,5 +1,9 @@
 import os
 import sys
+import json
+import time
+import urllib.request
+import urllib.error
 from metadataHandler import get_image_metadata, apply_metadata_to_image
 from locationHistoryLoader import parse_json_file_v2, get_closest_location_v2, get_file_size
 from googleTakeOutSplitter import splitGoogleTakeOut
@@ -48,6 +52,7 @@ class Window(QMainWindow, Ui_MainWindow):
         self.gpsFilesListWidget.hide()
         self.clearGoogleTakeOutButton.hide()
         self.imageLeafItems = []
+        self._reverse_geocode_cache = {}
         self._isUpdatingCheckState = False
         self._originalPixmap = None
 
@@ -80,6 +85,8 @@ class Window(QMainWindow, Ui_MainWindow):
         self.googleTakeOutButton.clicked.connect(self.select_folderTakeOutFile)
 
         self.clearGoogleTakeOutButton.clicked.connect(self.select_clearTakoutFile)
+        
+        self.reverseGeocodeButton.clicked.connect(self.handle_reverseGeocodeButton)
         ##############################image
         
         # Connect the item click event to a method
@@ -153,6 +160,123 @@ class Window(QMainWindow, Ui_MainWindow):
             dialog = ContactDialog()
             dialog.exec()
 
+    def _reverse_geocode_coordinates(self, lat, lng):
+        """
+        Fetch city and country from coordinates using Nominatim API.
+        Includes retry logic with exponential backoff for rate limiting.
+        
+        Returns: dict with 'city' and 'country' keys, or None if request fails.
+        """
+        max_retries = 3
+        retry_delay = 2  # Start with 2 second delay
+        
+        for attempt in range(max_retries):
+            try:
+                url = f'https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lng}'
+                req = urllib.request.Request(url, headers={'User-Agent': 'PhotoLocationUpdater/1.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    address = data.get('address', {})
+                    city = address.get('city') or address.get('town') or address.get('village') or address.get('county') or 'Unknown'
+                    country = address.get('country') or 'Unknown'
+                    return {'city': city.strip(), 'country': country.strip()}
+            except urllib.error.HTTPError as e:
+                if e.code == 429:  # Too Many Requests
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        return None
+                else:
+                    return None
+            except (urllib.error.URLError, json.JSONDecodeError, Exception):
+                return None
+        
+        return None
+
+    def _get_reverse_geocode_cached(self, lat, lng):
+        """Return cached reverse geocode result for coordinate or fetch and cache it."""
+        key = (round(float(lat), 6), round(float(lng), 6))
+        if key in self._reverse_geocode_cache:
+            return self._reverse_geocode_cache[key]
+
+        location_data = self._reverse_geocode_coordinates(key[0], key[1])
+        self._reverse_geocode_cache[key] = location_data
+        return location_data
+
+    def handle_reverseGeocodeButton(self):
+        """
+        Reverse geocode selected images (or all if none selected) using Nominatim API.
+        Uses coordinate cache so repeated coordinates do not send duplicate requests.
+        """
+        checked_targets = self._get_checked_image_items()
+        if checked_targets:
+            targets = checked_targets
+        else:
+            targets = self.imageLeafItems
+        
+        if not targets:
+            self.createAlert("No images to geocode.")
+            return
+
+        current_item = self.fileListWidget.currentItem()
+        current_image_path = self._get_item_path(current_item)
+        refresh_folder_path = os.path.dirname(self._get_item_path(self.imageLeafItems[0])) if self.imageLeafItems else None
+        
+        total_items = len(targets)
+        progress_dialog = QProgressDialog("Reverse geocoding images...", "Cancel", 0, total_items, self)
+        progress_dialog.setWindowTitle("Reverse Geocoding")
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+        
+        geocoded_count = 0
+        skipped_count = 0
+        failed_count = 0
+        for i, item in enumerate(targets):
+            if progress_dialog.wasCanceled():
+                self.createAlert("Operation canceled by the user.")
+                break
+
+            imagePath = self._get_item_path(item)
+            metadata = get_image_metadata(imagePath)
+
+            if 'GPSLatitude' not in metadata or 'GPSLongitude' not in metadata:
+                skipped_count += 1
+                progress_dialog.setValue(i + 1)
+                QApplication.processEvents()
+                continue
+
+            lat = metadata['GPSLatitude']
+            lng = metadata['GPSLongitude']
+            location_data = self._get_reverse_geocode_cached(lat, lng)
+
+            if location_data:
+                metadata['City'] = location_data['city']
+                metadata['Country'] = location_data['country']
+                apply_metadata_to_image(imagePath, metadata)
+                geocoded_count += 1
+            else:
+                failed_count += 1
+
+            progress_dialog.setValue(i + 1)
+            QApplication.processEvents()
+
+            # Keep request pace safe for Nominatim. Cached hits do not call API.
+            if i < total_items - 1:
+                time.sleep(1.1)
+        
+        progress_dialog.close()
+
+        if refresh_folder_path:
+            self._refresh_image_list(refresh_folder_path, current_image_path)
+        
+        if geocoded_count > 0 or skipped_count > 0 or failed_count > 0:
+            msg = f"Reverse geocoding complete.\nGeocoded: {geocoded_count}\nSkipped (no GPS): {skipped_count}\nFailed: {failed_count}"
+            self.createAlert(msg)
+        else:
+            self.createAlert("No images were processed.")
 
     def handle_previousButton(self):
         """
@@ -475,6 +599,20 @@ class Window(QMainWindow, Ui_MainWindow):
         if not item:
             return None
         return item.data(0, Qt.ItemDataRole.UserRole)
+
+    def _refresh_image_list(self, folder_path, selected_path=None):
+        if not folder_path:
+            return
+
+        self.list_photos(folder_path)
+        if not selected_path:
+            return
+
+        for item in self.imageLeafItems:
+            if self._get_item_path(item) == selected_path:
+                self.fileListWidget.setCurrentItem(item)
+                self.show_image(item)
+                break
 
     def _format_coordinate(self, value):
         if value is None:

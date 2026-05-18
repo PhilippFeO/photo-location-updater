@@ -72,6 +72,10 @@ class Ui_MainWindow(object):
         self.clearGoogleTakeOutButton.setObjectName(u"clearGoogleTakeOutButton")
         self.horizontalLayout.addWidget(self.clearGoogleTakeOutButton)
 
+        self.reverseGeocodeButton = QPushButton(self.centralwidget)
+        self.reverseGeocodeButton.setObjectName(u"reverseGeocodeButton")
+        self.horizontalLayout.addWidget(self.reverseGeocodeButton)
+
 
 
         self.gridLayout.addLayout(self.horizontalLayout, 1, 2, 1, 1)
@@ -165,6 +169,7 @@ class Ui_MainWindow(object):
         self.applyToAllOutButton.setText(_translate("MainWindow", u"Apply To All", None))    
         self.googleTakeOutButton.setText(_translate("MainWindow", u"Enable Google Takeout", None))
         self.clearGoogleTakeOutButton.setText(_translate("MainWindow", u"Disable Google Takeout", None))
+        self.reverseGeocodeButton.setText(_translate("MainWindow", u"Reverse Geocode", None))
         
         self.menuHelp.setTitle(QtCore.QCoreApplication.translate("MainWindow", u"Help", None))
         self.actionAbout.setText(QtCore.QCoreApplication.translate("MainWindow", u"About", None))
