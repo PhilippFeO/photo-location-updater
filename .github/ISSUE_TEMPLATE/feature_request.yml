@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest an idea or enhancement for Photo Location Updater
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your idea. Please fill out the fields below so we can evaluate the request.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the feature request.
+      placeholder: Add an option to batch update GPS coordinates for selected photos
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem are you trying to solve or what workflow are you improving?
+      placeholder: I often need to update many photos from the same location and currently must edit each one manually.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: Describe how you would like this feature to work.
+      placeholder: Allow selecting multiple photos and applying the same map-picked coordinates to all selected files.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered any other approaches or workarounds?
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature for your workflow?
+      options:
+        - Nice to have
+        - Important
+        - Critical
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Add screenshots, references, or examples from similar tools.
