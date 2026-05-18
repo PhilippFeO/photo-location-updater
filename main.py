@@ -105,6 +105,7 @@ class Window(QMainWindow, Ui_MainWindow):
         """
         global selectedCoordinates
         global selectedLocationData
+        refresh_folder_path, refresh_selected_path = self._capture_list_refresh_context()
         if selectedCoordinates is not None:
             targets = self._get_checked_image_items()
             if not targets:
@@ -120,6 +121,7 @@ class Window(QMainWindow, Ui_MainWindow):
             progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
             progress_dialog.setValue(0)
             progress_dialog.show()
+            updated_count = 0
     
             for i, item in enumerate(targets):
                 if progress_dialog.wasCanceled():
@@ -136,11 +138,14 @@ class Window(QMainWindow, Ui_MainWindow):
                     if selectedLocationData.get('Country'):
                         metadata['Country'] = selectedLocationData['Country']
                 apply_metadata_to_image(imagePath, metadata)
+                updated_count += 1
     
                 # Update progress
                 progress_dialog.setValue(i + 1)
     
             progress_dialog.close()
+            if updated_count > 0:
+                self._refresh_image_list(refresh_folder_path, refresh_selected_path)
             self.createAlert("All images have been updated with the selected coordinates.")
         else:
             self.createAlert("No Coordinates selected.")
@@ -220,9 +225,7 @@ class Window(QMainWindow, Ui_MainWindow):
             self.createAlert("No images to geocode.")
             return
 
-        current_item = self.fileListWidget.currentItem()
-        current_image_path = self._get_item_path(current_item)
-        refresh_folder_path = os.path.dirname(self._get_item_path(self.imageLeafItems[0])) if self.imageLeafItems else None
+        refresh_folder_path, current_image_path = self._capture_list_refresh_context()
         
         total_items = len(targets)
         progress_dialog = QProgressDialog("Reverse geocoding images...", "Cancel", 0, total_items, self)
@@ -269,7 +272,7 @@ class Window(QMainWindow, Ui_MainWindow):
         
         progress_dialog.close()
 
-        if refresh_folder_path:
+        if geocoded_count > 0 and refresh_folder_path:
             self._refresh_image_list(refresh_folder_path, current_image_path)
         
         if geocoded_count > 0 or skipped_count > 0 or failed_count > 0:
@@ -393,6 +396,7 @@ class Window(QMainWindow, Ui_MainWindow):
         global selectedLocationData
         global previousCoordinates
         global previousLocationData
+        refresh_folder_path, refresh_selected_path = self._capture_list_refresh_context()
         if selectedCoordinates != None:
             previousCoordinates = selectedCoordinates
             previousLocationData = selectedLocationData
@@ -420,6 +424,8 @@ class Window(QMainWindow, Ui_MainWindow):
         else:
             progress_dialog = None
 
+        updated_count = 0
+
         for i, item in enumerate(targets):
             if progress_dialog and progress_dialog.wasCanceled():
                 self.createAlert("Operation canceled by the user.")
@@ -436,12 +442,16 @@ class Window(QMainWindow, Ui_MainWindow):
 
             imagePath = self._get_item_path(item)
             apply_metadata_to_image(imagePath, metadata)
+            updated_count += 1
 
             if progress_dialog:
                 progress_dialog.setValue(i + 1)
 
         if progress_dialog:
             progress_dialog.close()
+
+        if updated_count > 0:
+            self._refresh_image_list(refresh_folder_path, refresh_selected_path)
         
         #call next button
         selectedCoordinates= None
@@ -599,6 +609,20 @@ class Window(QMainWindow, Ui_MainWindow):
         if not item:
             return None
         return item.data(0, Qt.ItemDataRole.UserRole)
+
+    def _capture_list_refresh_context(self):
+        current_item = self.fileListWidget.currentItem()
+        selected_path = self._get_item_path(current_item)
+
+        if self.imageLeafItems:
+            first_item_path = self._get_item_path(self.imageLeafItems[0])
+            if first_item_path:
+                return os.path.dirname(first_item_path), selected_path
+
+        if selected_path:
+            return os.path.dirname(selected_path), selected_path
+
+        return None, None
 
     def _refresh_image_list(self, folder_path, selected_path=None):
         if not folder_path:
