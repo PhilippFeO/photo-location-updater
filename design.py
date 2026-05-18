@@ -19,7 +19,7 @@ from PyQt6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
 from PyQt6.QtWidgets import (QApplication, QGridLayout, QHBoxLayout, QHeaderView,
     QLabel, QMainWindow,
     QMenuBar, QPushButton, QSizePolicy, QStatusBar,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+    QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 
@@ -78,46 +78,45 @@ class Ui_MainWindow(object):
         self.horizontalLayout_2 = QHBoxLayout()
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
 
+        self.mainContentSplitter = QSplitter(self.centralwidget)
+        self.mainContentSplitter.setObjectName(u"mainContentSplitter")
+        self.mainContentSplitter.setOrientation(Qt.Orientation.Horizontal)
+        self.mainContentSplitter.setChildrenCollapsible(False)
 
-        self.fileListWidget = QTreeWidget(self.centralwidget)
+        self.fileListWidget = QTreeWidget(self.mainContentSplitter)
         self.fileListWidget.setObjectName(u"fileListWidget")
-        self.fileListWidget.setMaximumSize(300, 60000)
+        self.fileListWidget.setMinimumSize(QSize(180, 0))
         self.fileListWidget.setColumnCount(3)
         __qtreewidgetitem1 = QTreeWidgetItem()
         __qtreewidgetitem1.setText(0, u"Name")
         __qtreewidgetitem1.setText(1, u"Latitude")
         __qtreewidgetitem1.setText(2, u"Longitude")
         self.fileListWidget.setHeaderItem(__qtreewidgetitem1)
-        self.horizontalLayout_2.addWidget(self.fileListWidget)
 
+        self.previewMapSplitter = QSplitter(self.mainContentSplitter)
+        self.previewMapSplitter.setObjectName(u"previewMapSplitter")
+        self.previewMapSplitter.setOrientation(Qt.Orientation.Vertical)
+        self.previewMapSplitter.setChildrenCollapsible(False)
 
-        self.verticalLayout_3 = QVBoxLayout()
-        self.verticalLayout_3.setObjectName(u"verticalLayout_3")
-
-
-        self.imageViewWidget = QtWidgets.QLabel(parent=self.centralwidget)
-        self.imageViewWidget.setScaledContents(True)
-        self.imageViewWidget.setMaximumSize(600, 400)
-        self.imageViewWidget.setMinimumSize(519,251)
+        self.imageViewWidget = QtWidgets.QLabel(parent=self.previewMapSplitter)
+        self.imageViewWidget.setScaledContents(False)
+        self.imageViewWidget.setMinimumSize(QSize(200, 150))
         self.imageViewWidget.setObjectName("imageViewWidget")
-        self.verticalLayout_3.addWidget(self.imageViewWidget,alignment=Qt.AlignmentFlag.AlignCenter)
-        
+        self.imageViewWidget.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.mapViewWidget = QWebEngineView(parent=self.centralwidget)
-        self.mapViewWidget.setGeometry(QtCore.QRect(310, 300, 471, 251))
-        self.verticalLayout_3.addWidget(self.mapViewWidget)
+        self.mapViewWidget = QWebEngineView(parent=self.previewMapSplitter)
         self.create_mapHTLM()
 
-
-        self.horizontalLayout_2.addLayout(self.verticalLayout_3)
-
-        self.gpsFilesListWidget = QTreeWidget(self.centralwidget)
+        self.gpsFilesListWidget = QTreeWidget(self.mainContentSplitter)
         __qtreewidgetitem = QTreeWidgetItem()
         __qtreewidgetitem.setText(0, u"Takeout Files");
         self.gpsFilesListWidget.setHeaderItem(__qtreewidgetitem)
         self.gpsFilesListWidget.setObjectName(u"gpsFilesListWidget")
-        self.gpsFilesListWidget.setMaximumSize(300, 60000)
-        self.horizontalLayout_2.addWidget(self.gpsFilesListWidget)
+        self.gpsFilesListWidget.setMinimumSize(QSize(180, 0))
+
+        self.mainContentSplitter.setSizes([240, 640, 220])
+        self.previewMapSplitter.setSizes([320, 280])
+        self.horizontalLayout_2.addWidget(self.mainContentSplitter)
 
         self.gridLayout.addLayout(self.horizontalLayout_2, 2, 2, 1, 1)
 

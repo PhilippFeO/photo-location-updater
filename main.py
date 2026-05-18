@@ -4,7 +4,7 @@ from metadataHandler import get_image_metadata, apply_metadata_to_image
 from locationHistoryLoader import parse_json_file_v2, get_closest_location_v2, get_file_size
 from googleTakeOutSplitter import splitGoogleTakeOut
 from design import Ui_MainWindow
-from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, Qt
+from PyQt6.QtCore import QEvent, pyqtSignal, pyqtSlot, QObject, Qt
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox, QTreeWidgetItem
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtGui import QPixmap, QImageReader
@@ -49,6 +49,9 @@ class Window(QMainWindow, Ui_MainWindow):
         self.clearGoogleTakeOutButton.hide()
         self.imageLeafItems = []
         self._isUpdatingCheckState = False
+        self._originalPixmap = None
+
+        self.imageViewWidget.installEventFilter(self)
 
         self.fileListWidget.setColumnCount(3)
         self.fileListWidget.setHeaderLabels(["Name", "Latitude", "Longitude"])
@@ -502,8 +505,13 @@ class Window(QMainWindow, Ui_MainWindow):
         # Get the full path of the selected image
         image_path = self._get_item_path(item)
         pixmap = QPixmap(image_path)
-        self.imageViewWidget.setPixmap(pixmap)
-        self.imageViewWidget.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center the image
+        if pixmap.isNull():
+            self._originalPixmap = None
+            self.imageViewWidget.clear()
+            return
+
+        self._originalPixmap = pixmap
+        self._update_image_preview()
 
         ##logic to show image in map
         metadata = get_image_metadata(image_path)
@@ -514,6 +522,26 @@ class Window(QMainWindow, Ui_MainWindow):
             self.set_image_location_and_aproximated_location(metadata,takeOutData)
         else:
             self.set_image_location(metadata)
+
+    def _update_image_preview(self):
+        if self._originalPixmap is None:
+            return
+
+        target_size = self.imageViewWidget.size()
+        if target_size.width() <= 0 or target_size.height() <= 0:
+            return
+
+        scaled_pixmap = self._originalPixmap.scaled(
+            target_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.imageViewWidget.setPixmap(scaled_pixmap)
+
+    def eventFilter(self, watched, event):
+        if watched is self.imageViewWidget and event.type() == QEvent.Type.Resize:
+            self._update_image_preview()
+        return super().eventFilter(watched, event)
 
     def set_image_location(self, metadata):
         """
