@@ -28,10 +28,12 @@ A simple tool to seamlessly update the geolocation metadata of your photos using
 - **Disable Google Takeout**: clear loaded Takeout data and hide Takeout list.
 - **Reverse Geocode**: read GPS data from selected photos, fetch city/country via OpenStreetMap Nominatim, and show review dialog before saving.
 
+### Main Screen
+![app](./src/sample.jpg)
 
-![app](./src/sample.png)
 
-
+### Reverse Geocode Results
+![app_reverseGeocode](./src/reverseGeocode.jpg)
 
 ## App Execution 
 
