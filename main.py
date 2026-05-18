@@ -14,17 +14,20 @@ from contactDialog import *
 
 #global vars
 selectedCoordinates = None
+selectedLocationData = None
 previousCoordinates = None
+previousLocationData = None
 originalCoordinates = None
 takeoutClosestLocation = None
 takeOutData = None
 
 class Handler(QObject):
-    coordinates_received = pyqtSignal(float, float)
+    coordinates_received = pyqtSignal(float, float, str, str)
 
     @pyqtSlot(float, float)
-    def receiveCoordinates(self, lat, lng):
-        self.coordinates_received.emit(lat, lng)
+    @pyqtSlot(float, float, str, str)
+    def receiveCoordinates(self, lat, lng, city='', country=''):
+        self.coordinates_received.emit(lat, lng, city or '', country or '')
 
 #.\photoLocationUpdaterEnv\Scripts\activate
 class Window(QMainWindow, Ui_MainWindow):
@@ -81,6 +84,7 @@ class Window(QMainWindow, Ui_MainWindow):
         If no coordinates are selected, it displays an alert message.
         """
         global selectedCoordinates
+        global selectedLocationData
         if selectedCoordinates is not None:
             total_items = self.fileListWidget.count()
             
@@ -101,6 +105,11 @@ class Window(QMainWindow, Ui_MainWindow):
                 metadata = get_image_metadata(imagePath)
                 metadata['GPSLatitude'] = selectedCoordinates[0]
                 metadata['GPSLongitude'] = selectedCoordinates[1]
+                if selectedLocationData:
+                    if selectedLocationData.get('City'):
+                        metadata['City'] = selectedLocationData['City']
+                    if selectedLocationData.get('Country'):
+                        metadata['Country'] = selectedLocationData['Country']
                 apply_metadata_to_image(imagePath, metadata)
     
                 # Update progress
@@ -175,10 +184,13 @@ class Window(QMainWindow, Ui_MainWindow):
         If there are no previous coordinates, it displays an alert message.
         """
         global selectedCoordinates
+        global selectedLocationData
         global previousCoordinates
+        global previousLocationData
         global originalCoordinates
         if previousCoordinates != None:
             selectedCoordinates = previousCoordinates
+            selectedLocationData = previousLocationData
             self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
             self.mapViewWidget.page().runJavaScript("closePopup();")
             self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({previousCoordinates[0]}, {previousCoordinates[1]}, 'new');")
@@ -234,12 +246,20 @@ class Window(QMainWindow, Ui_MainWindow):
             self.createAlert("No image selected")
             return
         global selectedCoordinates
+        global selectedLocationData
         global previousCoordinates
+        global previousLocationData
         metadata = {}
         if selectedCoordinates != None:
             previousCoordinates = selectedCoordinates
+            previousLocationData = selectedLocationData
             metadata['GPSLatitude'] = selectedCoordinates[0]
             metadata['GPSLongitude'] = selectedCoordinates[1]
+            if selectedLocationData:
+                if selectedLocationData.get('City'):
+                    metadata['City'] = selectedLocationData['City']
+                if selectedLocationData.get('Country'):
+                    metadata['Country'] = selectedLocationData['Country']
             imagePath = self.fileListWidget.currentItem().data(1)
             apply_metadata_to_image(imagePath,metadata)            
         else:
@@ -248,13 +268,20 @@ class Window(QMainWindow, Ui_MainWindow):
         
         #call next button
         selectedCoordinates= None
+        selectedLocationData = None
         self.handle_nextButton()
 
 
     @pyqtSlot(float, float)
-    def handle_coordinates(self, lat, lng):
+    @pyqtSlot(float, float, str, str)
+    def handle_coordinates(self, lat, lng, city='', country=''):
         global selectedCoordinates
+        global selectedLocationData
         selectedCoordinates = (lat, lng)
+        selectedLocationData = {
+            'City': city.strip() if city else None,
+            'Country': country.strip() if country else None,
+        }
 
 
     def select_folder(self):
@@ -358,10 +385,12 @@ class Window(QMainWindow, Ui_MainWindow):
             self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
             self.mapViewWidget.page().runJavaScript("closePopup();")
             global selectedCoordinates
+            global selectedLocationData
             # Set the image location on the map
             lat = closestLocation['Latitude']
             lng = closestLocation['Longitude']
             selectedCoordinates = (lat, lng)
+            selectedLocationData = None
             distanceInMinutes = round(closestLocation['DistanceInMinutes'], 2)
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation({lat}, {lng}, 15);")
             # Use the new function that fetches location data automatically

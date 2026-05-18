@@ -25,6 +25,32 @@
                         }).addTo(map);
 
                         var geocoder = L.Control.Geocoder.nominatim();
+                        var pyHandler = null;
+
+                        // Initialize Qt bridge once to avoid recreating channels on each click.
+                        if (typeof qt !== 'undefined' && qt.webChannelTransport) {
+                            new QWebChannel(qt.webChannelTransport, function(channel) {
+                                pyHandler = channel.objects.handler;
+                            });
+                        }
+
+                        function sendCoordinatesToPython(lat, lng, city, country) {
+                            if (!pyHandler || !pyHandler.receiveCoordinates) {
+                                return;
+                            }
+
+                            try {
+                                pyHandler.receiveCoordinates(lat, lng, city || '', country || '');
+                            } catch (error) {
+                                // Backward compatibility with older 2-argument slot signatures.
+                                try {
+                                    pyHandler.receiveCoordinates(lat, lng);
+                                } catch (_) {
+                                    console.error('Error sending coordinates to Python:', error);
+                                }
+                            }
+                        }
+
                         L.Control.geocoder({
                             geocoder: geocoder
                         }).addTo(map);
@@ -89,10 +115,8 @@
                                         .setContent(popupContent)
                                         .openOn(map);
                                     
-                                    // Send coordinates to Python
-                                    new QWebChannel(qt.webChannelTransport, function(channel) {
-                                        channel.objects.handler.receiveCoordinates(lat, lng);
-                                    });
+                                    // Send coordinates and location fields to Python.
+                                    sendCoordinatesToPython(lat, lng, city, country);
                                 })
                                 .catch(error => {
                                     console.error('Error fetching location:', error);
@@ -103,9 +127,7 @@
                                         .openOn(map);
                                     
                                     // Still send coordinates to Python
-                                    new QWebChannel(qt.webChannelTransport, function(channel) {
-                                        channel.objects.handler.receiveCoordinates(lat, lng);
-                                    });
+                                    sendCoordinatesToPython(lat, lng, '', '');
                                 });
                         });
 

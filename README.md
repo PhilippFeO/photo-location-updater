@@ -43,6 +43,11 @@ There are two ways to run the app.
 ### Requirements
 
 - Python 3.6+
+- ExifTool installed and available in PATH
+
+    - Windows: install from https://exiftool.org and ensure exiftool.exe is on PATH
+    - macOS: `brew install exiftool`
+    - Linux (Debian/Ubuntu): `sudo apt install libimage-exiftool-perl`
 
 ## Installation (via source)
 1. Clone the repository:
@@ -64,6 +69,21 @@ There are two ways to run the app.
     ```bash
     python main.py
     ```
+
+## Build Windows executable (includes ExifTool)
+
+From the project root:
+
+```powershell
+pip install pyinstaller
+pyinstaller --noconfirm --clean --windowed --name "Photo Location Updater" --add-data "map.html;." --add-data "src;src" --add-data "exiftool-13.58_64;exiftool-13.58_64" --collect-all PyQt6 --collect-all PyQt6-WebEngine main.py
+```
+
+The generated app folder is:
+
+- dist/Photo Location Updater
+
+Distribute the full folder (or zip its contents) to keep all required runtime files.
 
 ## App Usage
 
