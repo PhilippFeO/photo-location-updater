@@ -1,4 +1,42 @@
 from exiftoolService import ExifToolService
+import re
+
+
+def _normalize_exif_datetime(value):
+    if not value:
+        return None
+
+    text = str(value).strip()
+    # Normalize to format expected by takeout matcher: YYYY:MM:DD HH:MM:SS
+    match = re.search(r"\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}", text)
+    if match:
+        return match.group(0)
+
+    return text
+
+
+def _extract_created_date(exif_metadata):
+    date_candidates = [
+        "DateTimeOriginal",
+        "SubSecDateTimeOriginal",
+        "CreateDate",
+        "DateCreated",
+        "MediaCreateDate",
+        "TrackCreateDate",
+        "CreationDate",
+        "ModifyDate",
+        "FileCreateDate",
+        "FileModifyDate",
+    ]
+
+    for key in date_candidates:
+        value = exif_metadata.get(key)
+        if value:
+            normalized = _normalize_exif_datetime(value)
+            if normalized:
+                return normalized
+
+    return None
 
 
 def get_image_metadata(image_path):
@@ -7,7 +45,7 @@ def get_image_metadata(image_path):
 
     latitude = exif_metadata.get("GPSLatitude")
     longitude = exif_metadata.get("GPSLongitude")
-    created_date = exif_metadata.get("DateTimeOriginal")
+    created_date = _extract_created_date(exif_metadata)
     city = exif_metadata.get("City")
     country = exif_metadata.get("Country") or exif_metadata.get("Country-PrimaryLocationName")
     country_code = exif_metadata.get("Country-PrimaryLocationCode") or exif_metadata.get("LocationCreatedCountryCode")

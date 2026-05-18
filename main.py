@@ -797,9 +797,14 @@ class Window(QMainWindow, Ui_MainWindow):
             selectedCoordinates = (lat, lng)
             selectedLocationData = None
             distanceInMinutes = round(closestLocation['DistanceInMinutes'], 2)
+            marker_extra = {
+                'selectedDateTime': closestLocation.get('DateTime'),
+                'distanceInMinutes': distanceInMinutes,
+            }
+            marker_extra_json = json.dumps(marker_extra)
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation({lat}, {lng}, 15);")
             # Use the new function that fetches location data automatically
-            self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({lat}, {lng}, 'calculated');")
+            self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({lat}, {lng}, 'calculated', {marker_extra_json});")
 
 
     def select_folderTakeOutFile(self):
@@ -915,7 +920,12 @@ class Window(QMainWindow, Ui_MainWindow):
         self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({metadata['GPSLatitude']}, {metadata['GPSLongitude']}, 'new');")
 
         # Add marker for calculated location with location data
-        self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({closestLocation['Latitude']}, {closestLocation['Longitude']}, 'calculated');")
+        marker_extra = {
+            'selectedDateTime': closestLocation.get('DateTime'),
+            'distanceInMinutes': round(closestLocation.get('DistanceInMinutes', 0), 2),
+        }
+        marker_extra_json = json.dumps(marker_extra)
+        self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({closestLocation['Latitude']}, {closestLocation['Longitude']}, 'calculated', {marker_extra_json});")
 
         #self.mapViewWidget.page().runJavaScript(f"updateMapLocation({previousCoordinates[0]}, {previousCoordinates[1]}, 15);")
 

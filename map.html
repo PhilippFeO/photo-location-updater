@@ -135,10 +135,21 @@
                                 });
                         });
 
+                        function formatTakeoutDateTime(dateTime) {
+                            if (!dateTime) {
+                                return '';
+                            }
+
+                            var text = String(dateTime);
+                            // Convert ISO-like timestamp to a cleaner display while preserving original value.
+                            return text.replace('T', ' ');
+                        }
+
                         // Function to add marker with location data
-                        function addMarkerWithLocationData(lat, lng, markerType) {
+                        function addMarkerWithLocationData(lat, lng, markerType, extraInfo) {
                             var iconToUse = newLocationIcon;
                             var titlePrefix = 'New Location';
+                            var extraHtml = '';
                             
                             if (markerType === 'old') {
                                 iconToUse = oldLocationIcon;
@@ -146,6 +157,17 @@
                             } else if (markerType === 'calculated') {
                                 iconToUse = calculatedLocation;
                                 titlePrefix = 'Calculated Location';
+
+                                if (extraInfo) {
+                                    var dateTimeText = formatTakeoutDateTime(extraInfo.selectedDateTime || extraInfo.dateTime);
+                                    if (dateTimeText) {
+                                        extraHtml += '<br><br><strong>Selected Takeout Time:</strong><br>' + dateTimeText;
+                                    }
+
+                                    if (typeof extraInfo.distanceInMinutes === 'number') {
+                                        extraHtml += '<br><strong>Time Difference:</strong> ' + extraInfo.distanceInMinutes.toFixed(2) + ' min';
+                                    }
+                                }
                             }
                             
                             // Fetch location data using Nominatim reverse geocoding
@@ -164,6 +186,7 @@
                                         'Country: ' + country + '<br>' +
                                         'Country Code: ' + country_code + '<br>' +
                                         'City: ' + city +
+                                        extraHtml +
                                         '</div>';
                                     
                                     L.marker([lat, lng], {icon: iconToUse}).addTo(map).bindPopup(popupContent);
@@ -174,6 +197,7 @@
                                     var popupContent = '<div style="font-size: 12px;">' +
                                         '<strong>' + titlePrefix + ':</strong><br>' +
                                         lat.toFixed(8) + ', ' + lng.toFixed(8) +
+                                        extraHtml +
                                         '</div>';
                                     
                                     L.marker([lat, lng], {icon: iconToUse}).addTo(map).bindPopup(popupContent);
