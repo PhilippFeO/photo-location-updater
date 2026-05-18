@@ -17,7 +17,7 @@ from PyQt6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PyQt6.QtWidgets import (QApplication, QGridLayout, QHBoxLayout, QHeaderView,
-    QLabel, QListWidget, QListWidgetItem, QMainWindow,
+    QLabel, QMainWindow,
     QMenuBar, QPushButton, QSizePolicy, QStatusBar,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -79,9 +79,15 @@ class Ui_MainWindow(object):
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
 
 
-        self.fileListWidget = QListWidget(self.centralwidget)
+        self.fileListWidget = QTreeWidget(self.centralwidget)
         self.fileListWidget.setObjectName(u"fileListWidget")
         self.fileListWidget.setMaximumSize(300, 60000)
+        self.fileListWidget.setColumnCount(3)
+        __qtreewidgetitem1 = QTreeWidgetItem()
+        __qtreewidgetitem1.setText(0, u"Name")
+        __qtreewidgetitem1.setText(1, u"Latitude")
+        __qtreewidgetitem1.setText(2, u"Longitude")
+        self.fileListWidget.setHeaderItem(__qtreewidgetitem1)
         self.horizontalLayout_2.addWidget(self.fileListWidget)
 
 

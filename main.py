@@ -5,7 +5,7 @@ from locationHistoryLoader import parse_json_file_v2, get_closest_location_v2, g
 from googleTakeOutSplitter import splitGoogleTakeOut
 from design import Ui_MainWindow
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, Qt
-from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QListWidgetItem, QMessageBox, QTreeWidgetItem
+from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox, QTreeWidgetItem
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtGui import QPixmap, QImageReader
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -47,6 +47,15 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.gpsFilesListWidget.hide()
         self.clearGoogleTakeOutButton.hide()
+        self.imageLeafItems = []
+        self._isUpdatingCheckState = False
+
+        self.fileListWidget.setColumnCount(3)
+        self.fileListWidget.setHeaderLabels(["Name", "Latitude", "Longitude"])
+        self.fileListWidget.header().setStretchLastSection(False)
+        self.fileListWidget.header().resizeSection(0, 120)
+        self.fileListWidget.header().resizeSection(1, 85)
+        self.fileListWidget.header().resizeSection(2, 85)
 
         self.folderSelectButton.clicked.connect(self.select_folder)
 
@@ -71,7 +80,8 @@ class Window(QMainWindow, Ui_MainWindow):
         ##############################image
         
         # Connect the item click event to a method
-        self.fileListWidget.itemClicked.connect(self.show_image)
+        self.fileListWidget.itemClicked.connect(self.on_file_item_clicked)
+        self.fileListWidget.itemChanged.connect(self.handle_file_item_changed)
 
         self.gpsFilesListWidget.itemClicked.connect(self.loadTakeOutFile)
 
@@ -86,7 +96,13 @@ class Window(QMainWindow, Ui_MainWindow):
         global selectedCoordinates
         global selectedLocationData
         if selectedCoordinates is not None:
-            total_items = self.fileListWidget.count()
+            targets = self._get_checked_image_items()
+            if not targets:
+                targets = list(self.imageLeafItems)
+            total_items = len(targets)
+            if total_items == 0:
+                self.createAlert("No images loaded.")
+                return
             
             # Create a progress dialog
             progress_dialog = QProgressDialog("Applying coordinates to all images...", "Cancel", 0, total_items, self)
@@ -95,13 +111,12 @@ class Window(QMainWindow, Ui_MainWindow):
             progress_dialog.setValue(0)
             progress_dialog.show()
     
-            for i in range(total_items):
+            for i, item in enumerate(targets):
                 if progress_dialog.wasCanceled():
                     self.createAlert("Operation canceled by the user.")
                     break
     
-                item = self.fileListWidget.item(i)
-                imagePath = item.data(1)
+                imagePath = self._get_item_path(item)
                 metadata = get_image_metadata(imagePath)
                 metadata['GPSLatitude'] = selectedCoordinates[0]
                 metadata['GPSLongitude'] = selectedCoordinates[1]
@@ -144,16 +159,19 @@ class Window(QMainWindow, Ui_MainWindow):
         If the current row is valid, it sets the previous row as the current row and shows the image associated with the current item.
         If the current row is not valid, it sets the last row as the current row and shows the image associated with the current item.
         """
-        current_row = self.fileListWidget.currentRow()
-        if current_row == -1:
+        if not self.imageLeafItems:
             return
-        previous_row = current_row - 1
-        if previous_row >= 0:
-            self.fileListWidget.setCurrentRow(previous_row)
-            self.show_image(self.fileListWidget.currentItem())
+
+        current_item = self.fileListWidget.currentItem()
+        if current_item in self.imageLeafItems:
+            current_index = self.imageLeafItems.index(current_item)
         else:
-            self.fileListWidget.setCurrentRow(self.fileListWidget.count() - 1)
-            self.show_image(self.fileListWidget.currentItem())
+            current_index = 0
+
+        previous_index = (current_index - 1) % len(self.imageLeafItems)
+        previous_item = self.imageLeafItems[previous_index]
+        self.fileListWidget.setCurrentItem(previous_item)
+        self.show_image(previous_item)
 
     def handle_nextButton(self):
         """
@@ -163,16 +181,19 @@ class Window(QMainWindow, Ui_MainWindow):
         If the next row is within the range of the fileListWidget count, sets the current row to the next row and shows the image of the current item.
         If the next row is outside the range, sets the current row to 0 (first item) and shows the image of the current item.
         """
-        current_row = self.fileListWidget.currentRow()
-        if current_row == -1:
+        if not self.imageLeafItems:
             return
-        next_row = current_row + 1
-        if next_row < self.fileListWidget.count():
-            self.fileListWidget.setCurrentRow(next_row)
-            self.show_image(self.fileListWidget.currentItem())
+
+        current_item = self.fileListWidget.currentItem()
+        if current_item in self.imageLeafItems:
+            current_index = self.imageLeafItems.index(current_item)
         else:
-            self.fileListWidget.setCurrentRow(0) # Go back to the first item
-            self.show_image(self.fileListWidget.currentItem())
+            current_index = -1
+
+        next_index = (current_index + 1) % len(self.imageLeafItems)
+        next_item = self.imageLeafItems[next_index]
+        self.fileListWidget.setCurrentItem(next_item)
+        self.show_image(next_item)
 
 
     def handle_applyPreviousButton(self):
@@ -241,18 +262,43 @@ class Window(QMainWindow, Ui_MainWindow):
         Returns:
         - None
         """
-        current_row = self.fileListWidget.currentRow()
-        if current_row == -1:
-            self.createAlert("No image selected")
-            return
         global selectedCoordinates
         global selectedLocationData
         global previousCoordinates
         global previousLocationData
-        metadata = {}
         if selectedCoordinates != None:
             previousCoordinates = selectedCoordinates
             previousLocationData = selectedLocationData
+        else:
+            self.createAlert("No Coordinates selected")
+            return
+
+        checked_targets = self._get_checked_image_items()
+        if checked_targets:
+            targets = checked_targets
+        else:
+            current_item = self.fileListWidget.currentItem()
+            if not self._is_image_item(current_item):
+                self.createAlert("No image selected")
+                return
+            targets = [current_item]
+
+        total_items = len(targets)
+        if total_items > 1:
+            progress_dialog = QProgressDialog("Applying coordinates to selected images...", "Cancel", 0, total_items, self)
+            progress_dialog.setWindowTitle("Processing")
+            progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress_dialog.setValue(0)
+            progress_dialog.show()
+        else:
+            progress_dialog = None
+
+        for i, item in enumerate(targets):
+            if progress_dialog and progress_dialog.wasCanceled():
+                self.createAlert("Operation canceled by the user.")
+                break
+
+            metadata = {}
             metadata['GPSLatitude'] = selectedCoordinates[0]
             metadata['GPSLongitude'] = selectedCoordinates[1]
             if selectedLocationData:
@@ -260,16 +306,21 @@ class Window(QMainWindow, Ui_MainWindow):
                     metadata['City'] = selectedLocationData['City']
                 if selectedLocationData.get('Country'):
                     metadata['Country'] = selectedLocationData['Country']
-            imagePath = self.fileListWidget.currentItem().data(1)
-            apply_metadata_to_image(imagePath,metadata)            
-        else:
-            self.createAlert("No Coordinates selected")
-            return
+
+            imagePath = self._get_item_path(item)
+            apply_metadata_to_image(imagePath, metadata)
+
+            if progress_dialog:
+                progress_dialog.setValue(i + 1)
+
+        if progress_dialog:
+            progress_dialog.close()
         
         #call next button
         selectedCoordinates= None
         selectedLocationData = None
-        self.handle_nextButton()
+        if not checked_targets:
+            self.handle_nextButton()
 
 
     @pyqtSlot(float, float)
@@ -305,24 +356,137 @@ class Window(QMainWindow, Ui_MainWindow):
         Returns:
         None
         """
-        # Clear the fileListView before adding new items
+        # Clear previous items before adding new grouped entries
         self.fileListWidget.clear()
+        self.imageLeafItems = []
 
-        # List all photo files in the selected folder
+        # List and group all photo files in the selected folder
         photo_extensions = ('.jpg', '.jpeg', '.tiff')
-        firstfile = None
-        for file_name in os.listdir(folder_path):
-            if file_name.lower().endswith(photo_extensions):
-                item = QListWidgetItem(file_name)
-                item.setData(1, os.path.join(folder_path, file_name))  # Store the full path
-                if firstfile == None:
-                    firstfile = item
-                self.fileListWidget.addItem(item)
+        grouped_items = {}
+        photo_files = [file_name for file_name in sorted(os.listdir(folder_path)) if file_name.lower().endswith(photo_extensions)]
+
+        progress_dialog = QProgressDialog("Loading image metadata...", "Cancel", 0, len(photo_files), self)
+        progress_dialog.setWindowTitle("Loading Folder")
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+
+        loaded_files_count = 0
+        for i, file_name in enumerate(photo_files, start=1):
+            if progress_dialog.wasCanceled():
+                break
+
+            image_path = os.path.join(folder_path, file_name)
+            metadata = get_image_metadata(image_path)
+            country = (metadata.get('Country') or 'Unknown Country').strip() if metadata.get('Country') else 'Unknown Country'
+            city = (metadata.get('City') or 'Unknown City').strip() if metadata.get('City') else 'Unknown City'
+            grouped_items.setdefault(country, {}).setdefault(city, []).append({
+                'name': file_name,
+                'path': image_path,
+                'latitude': metadata.get('GPSLatitude'),
+                'longitude': metadata.get('GPSLongitude')
+            })
+
+            loaded_files_count += 1
+            progress_dialog.setValue(i)
+            QApplication.processEvents()
+
+        progress_dialog.close()
+
+        if progress_dialog.wasCanceled() and loaded_files_count == 0:
+            self.createAlert("Folder loading canceled.")
+            return
+
+        self._isUpdatingCheckState = True
+        for country_name in sorted(grouped_items.keys()):
+            country_item = QTreeWidgetItem(self.fileListWidget, [country_name, '', ''])
+            country_item.setFlags(country_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+            country_item.setCheckState(0, Qt.CheckState.Unchecked)
+
+            for city_name in sorted(grouped_items[country_name].keys()):
+                city_item = QTreeWidgetItem(country_item, [city_name, '', ''])
+                city_item.setFlags(city_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+                city_item.setCheckState(0, Qt.CheckState.Unchecked)
+
+                for image_data in grouped_items[country_name][city_name]:
+                    image_item = QTreeWidgetItem(city_item)
+                    image_item.setText(0, image_data['name'])
+                    image_item.setText(1, self._format_coordinate(image_data['latitude']))
+                    image_item.setText(2, self._format_coordinate(image_data['longitude']))
+                    image_item.setFlags(image_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    image_item.setCheckState(0, Qt.CheckState.Unchecked)
+                    image_item.setData(0, Qt.ItemDataRole.UserRole, image_data['path'])
+                    self.imageLeafItems.append(image_item)
+        self._isUpdatingCheckState = False
+
+        self.fileListWidget.expandAll()
         
         # Show the first image in the image view widget
-        if firstfile != None:
-            self.fileListWidget.setCurrentRow(0)
-            self.show_image(firstfile)
+        if self.imageLeafItems:
+            first_item = self.imageLeafItems[0]
+            self.fileListWidget.setCurrentItem(first_item)
+            self.show_image(first_item)
+
+    def on_file_item_clicked(self, item, column):
+        if self._is_image_item(item):
+            self.show_image(item)
+
+    def handle_file_item_changed(self, item, column):
+        if self._isUpdatingCheckState or column != 0:
+            return
+
+        # Parent checks should cascade to all descendants.
+        if item.childCount() > 0 and item.checkState(0) != Qt.CheckState.PartiallyChecked:
+            self._isUpdatingCheckState = True
+            self._set_descendants_check_state(item, item.checkState(0))
+            self._isUpdatingCheckState = False
+
+        # Force parent nodes to follow child state when all children match.
+        parent = item.parent()
+        while parent is not None:
+            checked_children = 0
+            partial_children = 0
+            child_count = parent.childCount()
+            for i in range(child_count):
+                state = parent.child(i).checkState(0)
+                if state == Qt.CheckState.Checked:
+                    checked_children += 1
+                elif state == Qt.CheckState.PartiallyChecked:
+                    partial_children += 1
+
+            self._isUpdatingCheckState = True
+            if checked_children == child_count:
+                parent.setCheckState(0, Qt.CheckState.Checked)
+            elif checked_children == 0 and partial_children == 0:
+                parent.setCheckState(0, Qt.CheckState.Unchecked)
+            else:
+                parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+            self._isUpdatingCheckState = False
+            parent = parent.parent()
+
+    def _is_image_item(self, item):
+        return bool(item and item.data(0, Qt.ItemDataRole.UserRole))
+
+    def _get_item_path(self, item):
+        if not item:
+            return None
+        return item.data(0, Qt.ItemDataRole.UserRole)
+
+    def _format_coordinate(self, value):
+        if value is None:
+            return ""
+        return f"{float(value):.6f}"
+
+    def _get_checked_image_items(self):
+        return [item for item in self.imageLeafItems if item.checkState(0) == Qt.CheckState.Checked]
+
+    def _set_descendants_check_state(self, item, state):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, state)
+            if child.childCount() > 0:
+                self._set_descendants_check_state(child, state)
 
     def show_image(self, item):
         """
@@ -332,8 +496,11 @@ class Window(QMainWindow, Ui_MainWindow):
         Returns:
         None
         """
+        if not self._is_image_item(item):
+            return
+
         # Get the full path of the selected image
-        image_path = item.data(1)
+        image_path = self._get_item_path(item)
         pixmap = QPixmap(image_path)
         self.imageViewWidget.setPixmap(pixmap)
         self.imageViewWidget.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center the image
