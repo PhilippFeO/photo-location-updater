@@ -4,6 +4,7 @@ import json
 import time
 import urllib.request
 import urllib.error
+from collections import OrderedDict
 from metadataHandler import get_image_metadata, apply_metadata_to_image
 from locationHistoryLoader import parse_json_file_v2, get_closest_location_v2, get_file_size
 from googleTakeOutSplitter import splitGoogleTakeOut
@@ -54,7 +55,8 @@ class Window(QMainWindow, Ui_MainWindow):
         self.gpsFilesListWidget.hide()
         self.clearGoogleTakeOutButton.hide()
         self.imageLeafItems = []
-        self._reverse_geocode_cache = {}
+        self._reverse_geocode_cache = OrderedDict()
+        self._reverse_geocode_cache_max = 5000
         self._isUpdatingCheckState = False
         self._originalPixmap = None
 
@@ -206,14 +208,20 @@ class Window(QMainWindow, Ui_MainWindow):
         return None
 
     def _get_reverse_geocode_cached(self, lat, lng):
-        """Return cached reverse geocode result for coordinate or fetch and cache it."""
+        """Return (location_data, from_cache) for coordinate using in-memory LRU cache."""
         key = (round(float(lat), 6), round(float(lng), 6))
         if key in self._reverse_geocode_cache:
-            return self._reverse_geocode_cache[key]
+            self._reverse_geocode_cache.move_to_end(key)
+            return self._reverse_geocode_cache[key], True
 
         location_data = self._reverse_geocode_coordinates(key[0], key[1])
         self._reverse_geocode_cache[key] = location_data
-        return location_data
+        self._reverse_geocode_cache.move_to_end(key)
+
+        if len(self._reverse_geocode_cache) > self._reverse_geocode_cache_max:
+            self._reverse_geocode_cache.popitem(last=False)
+
+        return location_data, False
 
     def handle_reverseGeocodeButton(self):
         """
@@ -259,7 +267,7 @@ class Window(QMainWindow, Ui_MainWindow):
 
             lat = metadata['GPSLatitude']
             lng = metadata['GPSLongitude']
-            location_data = self._get_reverse_geocode_cached(lat, lng)
+            location_data, from_cache = self._get_reverse_geocode_cached(lat, lng)
 
             geocode_results.append({
                 'image_path': imagePath,
@@ -274,8 +282,8 @@ class Window(QMainWindow, Ui_MainWindow):
             progress_dialog.setValue(i + 1)
             QApplication.processEvents()
 
-            # Keep request pace safe for Nominatim. Cached hits do not call API.
-            if i < total_items - 1:
+            # Keep request pace safe for Nominatim only when network request was made.
+            if i < total_items - 1 and not from_cache:
                 time.sleep(1.1)
         
         progress_dialog.close()
