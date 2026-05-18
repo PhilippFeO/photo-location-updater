@@ -135,6 +135,8 @@ class ExifToolService:
                 "-City",
                 "-Country",
                 "-Country-PrimaryLocationName",
+                "-Country-PrimaryLocationCode",
+                "-XMP-iptcExt:LocationCreatedCountryCode",
                 image_path,
             ]
         )
@@ -146,7 +148,7 @@ class ExifToolService:
         return parsed[0]
 
     @staticmethod
-    def write_gps_metadata(image_path, latitude, longitude, city=None, country=None):
+    def write_gps_metadata(image_path, latitude, longitude, city=None, country=None, country_code=None):
         latitude_ref = "N" if latitude >= 0 else "S"
         longitude_ref = "E" if longitude >= 0 else "W"
 
@@ -163,6 +165,7 @@ class ExifToolService:
                 [
                     f"-IPTC:City={city}",
                     f"-XMP:City={city}",
+                    f"-XMP-iptcExt:LocationCreatedCity={city}",
                 ]
             )
 
@@ -171,6 +174,16 @@ class ExifToolService:
                 [
                     f"-IPTC:Country-PrimaryLocationName={country}",
                     f"-XMP:Country={country}",
+                    f"-XMP-iptcExt:LocationCreatedCountryName={country}",
+                ]
+            )
+
+        if country_code:
+            args.extend(
+                [
+                    f"-Country-PrimaryLocationCode={country_code}",
+                    f"-IPTC:Country-PrimaryLocationCode={country_code}",
+                    f"-XMP-iptcExt:LocationCreatedCountryCode={country_code}",
                 ]
             )
 

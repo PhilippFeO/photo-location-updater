@@ -27,12 +27,13 @@ takeoutClosestLocation = None
 takeOutData = None
 
 class Handler(QObject):
-    coordinates_received = pyqtSignal(float, float, str, str)
+    coordinates_received = pyqtSignal(float, float, str, str, str)
 
     @pyqtSlot(float, float)
     @pyqtSlot(float, float, str, str)
-    def receiveCoordinates(self, lat, lng, city='', country=''):
-        self.coordinates_received.emit(lat, lng, city or '', country or '')
+    @pyqtSlot(float, float, str, str, str)
+    def receiveCoordinates(self, lat, lng, city='', country='', country_code=''):
+        self.coordinates_received.emit(lat, lng, city or '', country or '', country_code or '')
 
 #.\photoLocationUpdaterEnv\Scripts\activate
 class Window(QMainWindow, Ui_MainWindow):
@@ -138,6 +139,8 @@ class Window(QMainWindow, Ui_MainWindow):
                         metadata['City'] = selectedLocationData['City']
                     if selectedLocationData.get('Country'):
                         metadata['Country'] = selectedLocationData['Country']
+                    if selectedLocationData.get('CountryCode'):
+                        metadata['CountryCode'] = selectedLocationData['CountryCode']
                 apply_metadata_to_image(imagePath, metadata)
                 updated_count += 1
     
@@ -185,7 +188,8 @@ class Window(QMainWindow, Ui_MainWindow):
                     address = data.get('address', {})
                     city = address.get('city') or address.get('town') or address.get('village') or address.get('county') or 'Unknown'
                     country = address.get('country') or 'Unknown'
-                    return {'city': city.strip(), 'country': country.strip()}
+                    country_code = (address.get('country_code') or '').upper()
+                    return {'city': city.strip(), 'country': country.strip(), 'country_code': country_code}
             except urllib.error.HTTPError as e:
                 if e.code == 429:  # Too Many Requests
                     if attempt < max_retries - 1:
@@ -264,6 +268,7 @@ class Window(QMainWindow, Ui_MainWindow):
                 'lng': float(lng),
                 'city': location_data['city'] if location_data else '',
                 'country': location_data['country'] if location_data else '',
+                'country_code': location_data['country_code'] if location_data else '',
             })
 
             progress_dialog.setValue(i + 1)
@@ -295,6 +300,7 @@ class Window(QMainWindow, Ui_MainWindow):
                 'GPSLongitude': entry['lng'],
                 'City': entry['city'],
                 'Country': entry['country'],
+                'CountryCode': entry.get('country_code', ''),
             }
             apply_metadata_to_image(entry['image_path'], metadata)
             saved_count += 1
@@ -469,6 +475,8 @@ class Window(QMainWindow, Ui_MainWindow):
                     metadata['City'] = selectedLocationData['City']
                 if selectedLocationData.get('Country'):
                     metadata['Country'] = selectedLocationData['Country']
+                if selectedLocationData.get('CountryCode'):
+                    metadata['CountryCode'] = selectedLocationData['CountryCode']
 
             imagePath = self._get_item_path(item)
             apply_metadata_to_image(imagePath, metadata)
@@ -492,13 +500,15 @@ class Window(QMainWindow, Ui_MainWindow):
 
     @pyqtSlot(float, float)
     @pyqtSlot(float, float, str, str)
-    def handle_coordinates(self, lat, lng, city='', country=''):
+    @pyqtSlot(float, float, str, str, str)
+    def handle_coordinates(self, lat, lng, city='', country='', country_code=''):
         global selectedCoordinates
         global selectedLocationData
         selectedCoordinates = (lat, lng)
         selectedLocationData = {
             'City': city.strip() if city else None,
             'Country': country.strip() if country else None,
+            'CountryCode': country_code.strip().upper() if country_code else None,
         }
 
 

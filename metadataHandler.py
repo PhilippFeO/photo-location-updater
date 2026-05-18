@@ -10,6 +10,7 @@ def get_image_metadata(image_path):
     created_date = exif_metadata.get("DateTimeOriginal")
     city = exif_metadata.get("City")
     country = exif_metadata.get("Country") or exif_metadata.get("Country-PrimaryLocationName")
+    country_code = exif_metadata.get("Country-PrimaryLocationCode") or exif_metadata.get("LocationCreatedCountryCode")
 
     if latitude is not None and longitude is not None:
         metadata["GPSLatitude"] = float(latitude)
@@ -24,6 +25,9 @@ def get_image_metadata(image_path):
     if country:
         metadata["Country"] = country
 
+    if country_code:
+        metadata["CountryCode"] = country_code
+
     return metadata
 
 
@@ -32,6 +36,7 @@ def apply_metadata_to_image(image_path, metadata):
     longitude = metadata.get("GPSLongitude")
     city = metadata.get("City")
     country = metadata.get("Country")
+    country_code = metadata.get("CountryCode")
 
     if latitude is None or longitude is None:
         return
@@ -42,4 +47,5 @@ def apply_metadata_to_image(image_path, metadata):
         float(longitude),
         city=city,
         country=country,
+        country_code=country_code,
     )

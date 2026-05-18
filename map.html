@@ -34,19 +34,23 @@
                             });
                         }
 
-                        function sendCoordinatesToPython(lat, lng, city, country) {
+                        function sendCoordinatesToPython(lat, lng, city, country, countryCode) {
                             if (!pyHandler || !pyHandler.receiveCoordinates) {
                                 return;
                             }
 
                             try {
-                                pyHandler.receiveCoordinates(lat, lng, city || '', country || '');
+                                pyHandler.receiveCoordinates(lat, lng, city || '', country || '', countryCode || '');
                             } catch (error) {
-                                // Backward compatibility with older 2-argument slot signatures.
+                                // Backward compatibility with older slot signatures.
                                 try {
-                                    pyHandler.receiveCoordinates(lat, lng);
+                                    pyHandler.receiveCoordinates(lat, lng, city || '', country || '');
                                 } catch (_) {
-                                    console.error('Error sending coordinates to Python:', error);
+                                    try {
+                                        pyHandler.receiveCoordinates(lat, lng);
+                                    } catch (__ ) {
+                                        console.error('Error sending coordinates to Python:', error);
+                                    }
                                 }
                             }
                         }
@@ -116,7 +120,7 @@
                                         .openOn(map);
                                     
                                     // Send coordinates and location fields to Python.
-                                    sendCoordinatesToPython(lat, lng, city, country);
+                                    sendCoordinatesToPython(lat, lng, city, country, country_code);
                                 })
                                 .catch(error => {
                                     console.error('Error fetching location:', error);
@@ -127,7 +131,7 @@
                                         .openOn(map);
                                     
                                     // Still send coordinates to Python
-                                    sendCoordinatesToPython(lat, lng, '', '');
+                                    sendCoordinatesToPython(lat, lng, '', '', '');
                                 });
                         });
 
