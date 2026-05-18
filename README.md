@@ -11,8 +11,22 @@ A simple tool to seamlessly update the geolocation metadata of your photos using
 
 ## Features
 - 🌍 View and update photo geolocation on an interactive map
-- 🤖 Automate geolocation updates using Google Takeout data
-- 💾 Save updated metadata easily
+- 🖼️ Browse photos grouped by country and city from any folder
+- 🤖 Automate geolocation updates using Google Takeout data, including monthly split for large exports
+- 🔎 Reverse geocode existing GPS data and review results before writing EXIF
+- 💾 Save updated metadata for one photo, checked photos, or the full folder
+
+## Button Guide
+
+- **Select Folder**: open photo folder, load JPG/JPEG/TIFF files, and populate the image tree.
+- **< / >**: move to previous or next photo in the loaded list.
+- **Apply Previous**: reuse last applied coordinates for current photo and move map back to that location.
+- **Save and next**: write selected coordinates to current photo, then advance to next photo when not working from checked items.
+- **Apply Prev, Save, Next**: apply previous coordinates, save, then advance.
+- **Apply To All**: write selected coordinates to all checked photos, or all loaded photos if nothing is checked.
+- **Enable Google Takeout**: load Takeout JSON files from a folder and show them in the Takeout tree.
+- **Disable Google Takeout**: clear loaded Takeout data and hide Takeout list.
+- **Reverse Geocode**: read GPS data from selected photos, fetch city/country via OpenStreetMap Nominatim, and show review dialog before saving.
 
 
 ![app](./src/sample.png)
@@ -87,33 +101,36 @@ Distribute the full folder (or zip its contents) to keep all required runtime fi
 
 ## App Usage
 
-1. Use the GUI to select a folder containing photos.
+1. Use **Select Folder** to load a folder containing photos.
 
-2. Select a photo from the list to view it and its current geolocation.
+2. Select a photo from the list to view it, its metadata, and current location on map.
 
-3. Click on the map to update the geolocation of the selected photo.
+3. Click map to set new coordinates for selected photo.
 
-4. Save the updated geolocation metadata to the photo.
+4. Use **Save and next** to write coordinates to photo.
 
-Optionally you can load the google takeout files using the Enable Google Takeout button. When a file from the list is selected, the app will use it to find the location with the date closest to the photo taken date. Google shares the location history by month, so you will need to know the month when the photo was taken.
+5. Use **Apply Previous** or **Apply Prev, Save, Next** when next photo should reuse last location.
+
+6. Use **Apply To All** to batch-write selected coordinates to checked items or whole folder.
+
+Optionally load Google Takeout files with **Enable Google Takeout**. When loaded, app can use closest location by photo date. Large exports can be split by month into `TakeOutOutput` before loading.
 
 
 
 ## How to Request Location Data from Google Takeout
-Google changed the Location History data to be available only on the mobile device, this now needs to be done on the google maps app:
+Google changed the Location History data to be available only on the mobile device, this now needs to be done on your android device:
 
-1. Google Maps home screen 
-2. Profile picture (top right)
-3. Settings
-4. Google location settings
-5. Location Services
-6. Timeline
-7. Export Timeline data
+1. Go to device Settings
+2. Location
+3. Location Services
+4. Timeline
+5. "Export Timeline data" button"
 
-This will give you a big Json file, when firt loading it the app will ask you to split it by month. This is advised as using the full file have all you location history and the apps takes some time to run it to find the closest location.
-The app will keep te original file untouched but will generate a new folder with a file structure of an folder with the year and one file by each month.
 
-After successfully selecting and loading a takeout file the map will now show a new icon with a question mark (?) with the locationt closest to the date where the photo was taken. 
+This will give you a big JSON file. On first load, app may ask to split it by month. This is recommended because full file contains all location history and takes longer to search for closest match.
+App keeps original file untouched and generates `TakeOutOutput` with year/month files.
+
+After loading a takeout file, map can show a question-mark marker for closest location to photo date.
 
 ![app](./src/calculated_location.jpg)
 
