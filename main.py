@@ -9,12 +9,13 @@ from locationHistoryLoader import parse_json_file_v2, get_closest_location_v2, g
 from googleTakeOutSplitter import splitGoogleTakeOut
 from design import Ui_MainWindow
 from PyQt6.QtCore import QEvent, pyqtSignal, pyqtSlot, QObject, Qt
-from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox, QTreeWidgetItem
+from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox, QTreeWidgetItem, QDialog
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtGui import QPixmap, QImageReader
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QProgressDialog
 from contactDialog import *
+from geoReviewDialog import GeoReviewDialog
 
 #global vars
 selectedCoordinates = None
@@ -214,6 +215,7 @@ class Window(QMainWindow, Ui_MainWindow):
         """
         Reverse geocode selected images (or all if none selected) using Nominatim API.
         Uses coordinate cache so repeated coordinates do not send duplicate requests.
+        Results are shown in a review dialog before writing to image EXIF.
         """
         checked_targets = self._get_checked_image_items()
         if checked_targets:
@@ -234,12 +236,12 @@ class Window(QMainWindow, Ui_MainWindow):
         progress_dialog.setValue(0)
         progress_dialog.show()
         
-        geocoded_count = 0
+        geocode_results = []
         skipped_count = 0
-        failed_count = 0
+        canceled = False
         for i, item in enumerate(targets):
             if progress_dialog.wasCanceled():
-                self.createAlert("Operation canceled by the user.")
+                canceled = True
                 break
 
             imagePath = self._get_item_path(item)
@@ -255,13 +257,14 @@ class Window(QMainWindow, Ui_MainWindow):
             lng = metadata['GPSLongitude']
             location_data = self._get_reverse_geocode_cached(lat, lng)
 
-            if location_data:
-                metadata['City'] = location_data['city']
-                metadata['Country'] = location_data['country']
-                apply_metadata_to_image(imagePath, metadata)
-                geocoded_count += 1
-            else:
-                failed_count += 1
+            geocode_results.append({
+                'image_path': imagePath,
+                'filename': os.path.basename(imagePath),
+                'lat': float(lat),
+                'lng': float(lng),
+                'city': location_data['city'] if location_data else '',
+                'country': location_data['country'] if location_data else '',
+            })
 
             progress_dialog.setValue(i + 1)
             QApplication.processEvents()
@@ -272,14 +275,41 @@ class Window(QMainWindow, Ui_MainWindow):
         
         progress_dialog.close()
 
-        if geocoded_count > 0 and refresh_folder_path:
-            self._refresh_image_list(refresh_folder_path, current_image_path)
-        
-        if geocoded_count > 0 or skipped_count > 0 or failed_count > 0:
-            msg = f"Reverse geocoding complete.\nGeocoded: {geocoded_count}\nSkipped (no GPS): {skipped_count}\nFailed: {failed_count}"
+        if canceled:
+            self.createAlert("Operation canceled by the user.")
+            return
+
+        if not geocode_results:
+            msg = f"No images were processed.\nSkipped (no GPS): {skipped_count}"
             self.createAlert(msg)
-        else:
-            self.createAlert("No images were processed.")
+            return
+
+        dialog = GeoReviewDialog(geocode_results, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        saved_count = 0
+        for entry in dialog.get_results():
+            metadata = {
+                'GPSLatitude': entry['lat'],
+                'GPSLongitude': entry['lng'],
+                'City': entry['city'],
+                'Country': entry['country'],
+            }
+            apply_metadata_to_image(entry['image_path'], metadata)
+            saved_count += 1
+
+        if saved_count > 0 and refresh_folder_path:
+            self._refresh_image_list(refresh_folder_path, current_image_path)
+
+        failed_count = len(geocode_results) - saved_count
+        msg = (
+            f"Reverse geocoding complete.\n"
+            f"Saved: {saved_count}\n"
+            f"Skipped (no GPS): {skipped_count}\n"
+            f"Failed: {failed_count}"
+        )
+        self.createAlert(msg)
 
     def handle_previousButton(self):
         """
