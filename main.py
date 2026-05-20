@@ -1,4 +1,6 @@
+import argparse
 import os
+from pathlib import Path
 import sys
 import json
 import time
@@ -39,8 +41,11 @@ class Handler(QObject):
 #.\photoLocationUpdaterEnv\Scripts\activate
 class Window(QMainWindow, Ui_MainWindow):
     
-    def __init__(self):
+    def __init__(self, photo_dir: Path | None = None):
         super().__init__()
+
+        self.photo_dir: Path | None = photo_dir
+
         self.setupUi(self)
 
         QImageReader.setAllocationLimit(0)
@@ -949,9 +954,14 @@ class Window(QMainWindow, Ui_MainWindow):
             return f"The calculated location differs from the photos taken date by {int(minutes):02d} minutes."
   
 
-app = QApplication(sys.argv)
-window = Window()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(prog='photo-location-setter', usage='%(prog)s [dir]')
+    parser.add_argument('dir', nargs='?', help='Directory containing fotos to edit location information [optional].')
+    args = parser.parse_args()
 
-app.setStyle("Fusion")
-window.show()
-app.exec()
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+
+    window = Window(Path(args.dir))
+    window.show()
+    app.exec()
