@@ -1,36 +1,51 @@
+import argparse
 import os
+from pathlib import Path
 import sys
+import json
+import time
+import urllib.request
+import urllib.error
+from collections import OrderedDict
 from metadataHandler import get_image_metadata, apply_metadata_to_image
 from locationHistoryLoader import parse_json_file_v2, get_closest_location_v2, get_file_size
 from googleTakeOutSplitter import splitGoogleTakeOut
 from design import Ui_MainWindow
-from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, Qt
-from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QListWidgetItem, QMessageBox, QTreeWidgetItem
+from PyQt6.QtCore import QEvent, pyqtSignal, pyqtSlot, QObject, Qt
+from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox, QTreeWidgetItem, QDialog
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtGui import QPixmap, QImageReader
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QProgressDialog
 from contactDialog import *
+from geoReviewDialog import GeoReviewDialog
 
 #global vars
 selectedCoordinates = None
+selectedLocationData = None
 previousCoordinates = None
+previousLocationData = None
 originalCoordinates = None
 takeoutClosestLocation = None
 takeOutData = None
 
 class Handler(QObject):
-    coordinates_received = pyqtSignal(float, float)
+    coordinates_received = pyqtSignal(float, float, str, str, str)
 
     @pyqtSlot(float, float)
-    def receiveCoordinates(self, lat, lng):
-        self.coordinates_received.emit(lat, lng)
+    @pyqtSlot(float, float, str, str)
+    @pyqtSlot(float, float, str, str, str)
+    def receiveCoordinates(self, lat, lng, city='', country='', country_code=''):
+        self.coordinates_received.emit(lat, lng, city or '', country or '', country_code or '')
 
 #.\photoLocationUpdaterEnv\Scripts\activate
 class Window(QMainWindow, Ui_MainWindow):
     
-    def __init__(self):
+    def __init__(self, photo_dir: Path | None = None):
         super().__init__()
+
+        self.photo_dir: Path | None = photo_dir
+
         self.setupUi(self)
 
         QImageReader.setAllocationLimit(0)
@@ -44,6 +59,20 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.gpsFilesListWidget.hide()
         self.clearGoogleTakeOutButton.hide()
+        self.imageLeafItems = []
+        self._reverse_geocode_cache = OrderedDict()
+        self._reverse_geocode_cache_max = 5000
+        self._isUpdatingCheckState = False
+        self._originalPixmap = None
+
+        self.imageViewWidget.installEventFilter(self)
+
+        self.fileListWidget.setColumnCount(3)
+        self.fileListWidget.setHeaderLabels(["Name", "Latitude", "Longitude"])
+        self.fileListWidget.header().setStretchLastSection(False)
+        self.fileListWidget.header().resizeSection(0, 120)
+        self.fileListWidget.header().resizeSection(1, 85)
+        self.fileListWidget.header().resizeSection(2, 85)
 
         self.folderSelectButton.clicked.connect(self.select_folder)
 
@@ -65,10 +94,13 @@ class Window(QMainWindow, Ui_MainWindow):
         self.googleTakeOutButton.clicked.connect(self.select_folderTakeOutFile)
 
         self.clearGoogleTakeOutButton.clicked.connect(self.select_clearTakoutFile)
+        
+        self.reverseGeocodeButton.clicked.connect(self.handle_reverseGeocodeButton)
         ##############################image
         
         # Connect the item click event to a method
-        self.fileListWidget.itemClicked.connect(self.show_image)
+        self.fileListWidget.itemClicked.connect(self.on_file_item_clicked)
+        self.fileListWidget.itemChanged.connect(self.handle_file_item_changed)
 
         self.gpsFilesListWidget.itemClicked.connect(self.loadTakeOutFile)
 
@@ -81,8 +113,16 @@ class Window(QMainWindow, Ui_MainWindow):
         If no coordinates are selected, it displays an alert message.
         """
         global selectedCoordinates
+        global selectedLocationData
+        refresh_folder_path, refresh_selected_path = self._capture_list_refresh_context()
         if selectedCoordinates is not None:
-            total_items = self.fileListWidget.count()
+            targets = self._get_checked_image_items()
+            if not targets:
+                targets = list(self.imageLeafItems)
+            total_items = len(targets)
+            if total_items == 0:
+                self.createAlert("No images loaded.")
+                return
             
             # Create a progress dialog
             progress_dialog = QProgressDialog("Applying coordinates to all images...", "Cancel", 0, total_items, self)
@@ -90,23 +130,33 @@ class Window(QMainWindow, Ui_MainWindow):
             progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
             progress_dialog.setValue(0)
             progress_dialog.show()
+            updated_count = 0
     
-            for i in range(total_items):
+            for i, item in enumerate(targets):
                 if progress_dialog.wasCanceled():
                     self.createAlert("Operation canceled by the user.")
                     break
     
-                item = self.fileListWidget.item(i)
-                imagePath = item.data(1)
+                imagePath = self._get_item_path(item)
                 metadata = get_image_metadata(imagePath)
                 metadata['GPSLatitude'] = selectedCoordinates[0]
                 metadata['GPSLongitude'] = selectedCoordinates[1]
+                if selectedLocationData:
+                    if selectedLocationData.get('City'):
+                        metadata['City'] = selectedLocationData['City']
+                    if selectedLocationData.get('Country'):
+                        metadata['Country'] = selectedLocationData['Country']
+                    if selectedLocationData.get('CountryCode'):
+                        metadata['CountryCode'] = selectedLocationData['CountryCode']
                 apply_metadata_to_image(imagePath, metadata)
+                updated_count += 1
     
                 # Update progress
                 progress_dialog.setValue(i + 1)
     
             progress_dialog.close()
+            if updated_count > 0:
+                self._refresh_image_list(refresh_folder_path, refresh_selected_path)
             self.createAlert("All images have been updated with the selected coordinates.")
         else:
             self.createAlert("No Coordinates selected.")
@@ -126,6 +176,159 @@ class Window(QMainWindow, Ui_MainWindow):
             dialog = ContactDialog()
             dialog.exec()
 
+    def _reverse_geocode_coordinates(self, lat, lng):
+        """
+        Fetch city and country from coordinates using Nominatim API.
+        Includes retry logic with exponential backoff for rate limiting.
+        
+        Returns: dict with 'city' and 'country' keys, or None if request fails.
+        """
+        max_retries = 3
+        retry_delay = 2  # Start with 2 second delay
+        
+        for attempt in range(max_retries):
+            try:
+                url = f'https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lng}'
+                req = urllib.request.Request(url, headers={'User-Agent': 'PhotoLocationUpdater/1.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    address = data.get('address', {})
+                    city = address.get('city') or address.get('town') or address.get('village') or address.get('county') or 'Unknown'
+                    country = address.get('country') or 'Unknown'
+                    country_code = (address.get('country_code') or '').upper()
+                    return {'city': city.strip(), 'country': country.strip(), 'country_code': country_code}
+            except urllib.error.HTTPError as e:
+                if e.code == 429:  # Too Many Requests
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        return None
+                else:
+                    return None
+            except (urllib.error.URLError, json.JSONDecodeError, Exception):
+                return None
+        
+        return None
+
+    def _get_reverse_geocode_cached(self, lat, lng):
+        """Return (location_data, from_cache) for coordinate using in-memory LRU cache."""
+        key = (round(float(lat), 6), round(float(lng), 6))
+        if key in self._reverse_geocode_cache:
+            self._reverse_geocode_cache.move_to_end(key)
+            return self._reverse_geocode_cache[key], True
+
+        location_data = self._reverse_geocode_coordinates(key[0], key[1])
+        self._reverse_geocode_cache[key] = location_data
+        self._reverse_geocode_cache.move_to_end(key)
+
+        if len(self._reverse_geocode_cache) > self._reverse_geocode_cache_max:
+            self._reverse_geocode_cache.popitem(last=False)
+
+        return location_data, False
+
+    def handle_reverseGeocodeButton(self):
+        """
+        Reverse geocode selected images (or all if none selected) using Nominatim API.
+        Uses coordinate cache so repeated coordinates do not send duplicate requests.
+        Results are shown in a review dialog before writing to image EXIF.
+        """
+        checked_targets = self._get_checked_image_items()
+        if checked_targets:
+            targets = checked_targets
+        else:
+            targets = self.imageLeafItems
+        
+        if not targets:
+            self.createAlert("No images to geocode.")
+            return
+
+        refresh_folder_path, current_image_path = self._capture_list_refresh_context()
+        
+        total_items = len(targets)
+        progress_dialog = QProgressDialog("Reverse geocoding images...", "Cancel", 0, total_items, self)
+        progress_dialog.setWindowTitle("Reverse Geocoding")
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+        
+        geocode_results = []
+        skipped_count = 0
+        canceled = False
+        for i, item in enumerate(targets):
+            if progress_dialog.wasCanceled():
+                canceled = True
+                break
+
+            imagePath = self._get_item_path(item)
+            metadata = get_image_metadata(imagePath)
+
+            if 'GPSLatitude' not in metadata or 'GPSLongitude' not in metadata:
+                skipped_count += 1
+                progress_dialog.setValue(i + 1)
+                QApplication.processEvents()
+                continue
+
+            lat = metadata['GPSLatitude']
+            lng = metadata['GPSLongitude']
+            location_data, from_cache = self._get_reverse_geocode_cached(lat, lng)
+
+            geocode_results.append({
+                'image_path': imagePath,
+                'filename': os.path.basename(imagePath),
+                'lat': float(lat),
+                'lng': float(lng),
+                'city': location_data['city'] if location_data else '',
+                'country': location_data['country'] if location_data else '',
+                'country_code': location_data['country_code'] if location_data else '',
+            })
+
+            progress_dialog.setValue(i + 1)
+            QApplication.processEvents()
+
+            # Keep request pace safe for Nominatim only when network request was made.
+            if i < total_items - 1 and not from_cache:
+                time.sleep(1.1)
+        
+        progress_dialog.close()
+
+        if canceled:
+            self.createAlert("Operation canceled by the user.")
+            return
+
+        if not geocode_results:
+            msg = f"No images were processed.\nSkipped (no GPS): {skipped_count}"
+            self.createAlert(msg)
+            return
+
+        dialog = GeoReviewDialog(geocode_results, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        saved_count = 0
+        for entry in dialog.get_results():
+            metadata = {
+                'GPSLatitude': entry['lat'],
+                'GPSLongitude': entry['lng'],
+                'City': entry['city'],
+                'Country': entry['country'],
+                'CountryCode': entry.get('country_code', ''),
+            }
+            apply_metadata_to_image(entry['image_path'], metadata)
+            saved_count += 1
+
+        if saved_count > 0 and refresh_folder_path:
+            self._refresh_image_list(refresh_folder_path, current_image_path)
+
+        failed_count = len(geocode_results) - saved_count
+        msg = (
+            f"Reverse geocoding complete.\n"
+            f"Saved: {saved_count}\n"
+            f"Skipped (no GPS): {skipped_count}\n"
+            f"Failed: {failed_count}"
+        )
+        self.createAlert(msg)
 
     def handle_previousButton(self):
         """
@@ -135,16 +338,19 @@ class Window(QMainWindow, Ui_MainWindow):
         If the current row is valid, it sets the previous row as the current row and shows the image associated with the current item.
         If the current row is not valid, it sets the last row as the current row and shows the image associated with the current item.
         """
-        current_row = self.fileListWidget.currentRow()
-        if current_row == -1:
+        if not self.imageLeafItems:
             return
-        previous_row = current_row - 1
-        if previous_row >= 0:
-            self.fileListWidget.setCurrentRow(previous_row)
-            self.show_image(self.fileListWidget.currentItem())
+
+        current_item = self.fileListWidget.currentItem()
+        if current_item in self.imageLeafItems:
+            current_index = self.imageLeafItems.index(current_item)
         else:
-            self.fileListWidget.setCurrentRow(self.fileListWidget.count() - 1)
-            self.show_image(self.fileListWidget.currentItem())
+            current_index = 0
+
+        previous_index = (current_index - 1) % len(self.imageLeafItems)
+        previous_item = self.imageLeafItems[previous_index]
+        self.fileListWidget.setCurrentItem(previous_item)
+        self.show_image(previous_item)
 
     def handle_nextButton(self):
         """
@@ -154,16 +360,19 @@ class Window(QMainWindow, Ui_MainWindow):
         If the next row is within the range of the fileListWidget count, sets the current row to the next row and shows the image of the current item.
         If the next row is outside the range, sets the current row to 0 (first item) and shows the image of the current item.
         """
-        current_row = self.fileListWidget.currentRow()
-        if current_row == -1:
+        if not self.imageLeafItems:
             return
-        next_row = current_row + 1
-        if next_row < self.fileListWidget.count():
-            self.fileListWidget.setCurrentRow(next_row)
-            self.show_image(self.fileListWidget.currentItem())
+
+        current_item = self.fileListWidget.currentItem()
+        if current_item in self.imageLeafItems:
+            current_index = self.imageLeafItems.index(current_item)
         else:
-            self.fileListWidget.setCurrentRow(0) # Go back to the first item
-            self.show_image(self.fileListWidget.currentItem())
+            current_index = -1
+
+        next_index = (current_index + 1) % len(self.imageLeafItems)
+        next_item = self.imageLeafItems[next_index]
+        self.fileListWidget.setCurrentItem(next_item)
+        self.show_image(next_item)
 
 
     def handle_applyPreviousButton(self):
@@ -175,17 +384,20 @@ class Window(QMainWindow, Ui_MainWindow):
         If there are no previous coordinates, it displays an alert message.
         """
         global selectedCoordinates
+        global selectedLocationData
         global previousCoordinates
+        global previousLocationData
         global originalCoordinates
         if previousCoordinates != None:
             selectedCoordinates = previousCoordinates
+            selectedLocationData = previousLocationData
             self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
             self.mapViewWidget.page().runJavaScript("closePopup();")
-            self.mapViewWidget.page().runJavaScript(f"L.marker([{previousCoordinates[0]},{previousCoordinates[1]}], {{icon: newLocationIcon}}).addTo(map).bindPopup('New Location: {round(previousCoordinates[0], 8)}, {round(previousCoordinates[1], 8)}');")  # Add marker to the map with info
+            self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({previousCoordinates[0]}, {previousCoordinates[1]}, 'new');")
             
 
             if originalCoordinates != None:
-                self.mapViewWidget.page().runJavaScript(f"L.marker([{originalCoordinates[0]},{originalCoordinates[1]}], {{icon: oldLocationIcon}}).addTo(map).bindPopup('Original Location: {round(originalCoordinates[0], 8)}, {round(originalCoordinates[1], 8)}');")  # Add marker to the map with info
+                self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({originalCoordinates[0]}, {originalCoordinates[1]}, 'old');")
             
             #self.mapViewWidget.page().runJavaScript(f"updateMapLocation({previousCoordinates[0]}, {previousCoordinates[1]}, 15);")
 
@@ -229,32 +441,88 @@ class Window(QMainWindow, Ui_MainWindow):
         Returns:
         - None
         """
-        current_row = self.fileListWidget.currentRow()
-        if current_row == -1:
-            self.createAlert("No image selected")
-            return
         global selectedCoordinates
+        global selectedLocationData
         global previousCoordinates
-        metadata = {}
+        global previousLocationData
+        refresh_folder_path, refresh_selected_path = self._capture_list_refresh_context()
         if selectedCoordinates != None:
             previousCoordinates = selectedCoordinates
-            metadata['GPSLatitude'] = selectedCoordinates[0]
-            metadata['GPSLongitude'] = selectedCoordinates[1]
-            imagePath = self.fileListWidget.currentItem().data(1)
-            apply_metadata_to_image(imagePath,metadata)            
+            previousLocationData = selectedLocationData
         else:
             self.createAlert("No Coordinates selected")
             return
+
+        checked_targets = self._get_checked_image_items()
+        if checked_targets:
+            targets = checked_targets
+        else:
+            current_item = self.fileListWidget.currentItem()
+            if not self._is_image_item(current_item):
+                self.createAlert("No image selected")
+                return
+            targets = [current_item]
+
+        total_items = len(targets)
+        if total_items > 1:
+            progress_dialog = QProgressDialog("Applying coordinates to selected images...", "Cancel", 0, total_items, self)
+            progress_dialog.setWindowTitle("Processing")
+            progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress_dialog.setValue(0)
+            progress_dialog.show()
+        else:
+            progress_dialog = None
+
+        updated_count = 0
+
+        for i, item in enumerate(targets):
+            if progress_dialog and progress_dialog.wasCanceled():
+                self.createAlert("Operation canceled by the user.")
+                break
+
+            metadata = {}
+            metadata['GPSLatitude'] = selectedCoordinates[0]
+            metadata['GPSLongitude'] = selectedCoordinates[1]
+            if selectedLocationData:
+                if selectedLocationData.get('City'):
+                    metadata['City'] = selectedLocationData['City']
+                if selectedLocationData.get('Country'):
+                    metadata['Country'] = selectedLocationData['Country']
+                if selectedLocationData.get('CountryCode'):
+                    metadata['CountryCode'] = selectedLocationData['CountryCode']
+
+            imagePath = self._get_item_path(item)
+            apply_metadata_to_image(imagePath, metadata)
+            updated_count += 1
+
+            if progress_dialog:
+                progress_dialog.setValue(i + 1)
+
+        if progress_dialog:
+            progress_dialog.close()
+
+        if updated_count > 0:
+            self._refresh_image_list(refresh_folder_path, refresh_selected_path)
         
         #call next button
         selectedCoordinates= None
-        self.handle_nextButton()
+        selectedLocationData = None
+        if not checked_targets:
+            self.handle_nextButton()
 
 
     @pyqtSlot(float, float)
-    def handle_coordinates(self, lat, lng):
+    @pyqtSlot(float, float, str, str)
+    @pyqtSlot(float, float, str, str, str)
+    def handle_coordinates(self, lat, lng, city='', country='', country_code=''):
         global selectedCoordinates
+        global selectedLocationData
         selectedCoordinates = (lat, lng)
+        selectedLocationData = {
+            'City': city.strip() if city else None,
+            'Country': country.strip() if country else None,
+            'CountryCode': country_code.strip().upper() if country_code else None,
+        }
 
 
     def select_folder(self):
@@ -278,24 +546,165 @@ class Window(QMainWindow, Ui_MainWindow):
         Returns:
         None
         """
-        # Clear the fileListView before adding new items
+        # Clear previous items before adding new grouped entries
         self.fileListWidget.clear()
+        self.imageLeafItems = []
 
-        # List all photo files in the selected folder
+        # List and group all photo files in the selected folder
         photo_extensions = ('.jpg', '.jpeg', '.tiff')
-        firstfile = None
-        for file_name in os.listdir(folder_path):
-            if file_name.lower().endswith(photo_extensions):
-                item = QListWidgetItem(file_name)
-                item.setData(1, os.path.join(folder_path, file_name))  # Store the full path
-                if firstfile == None:
-                    firstfile = item
-                self.fileListWidget.addItem(item)
+        grouped_items = {}
+        photo_files = [file_name for file_name in sorted(os.listdir(folder_path)) if file_name.lower().endswith(photo_extensions)]
+
+        progress_dialog = QProgressDialog("Loading image metadata...", "Cancel", 0, len(photo_files), self)
+        progress_dialog.setWindowTitle("Loading Folder")
+        progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        progress_dialog.show()
+
+        loaded_files_count = 0
+        for i, file_name in enumerate(photo_files, start=1):
+            if progress_dialog.wasCanceled():
+                break
+
+            image_path = os.path.join(folder_path, file_name)
+            metadata = get_image_metadata(image_path)
+            country = (metadata.get('Country') or 'Unknown Country').strip() if metadata.get('Country') else 'Unknown Country'
+            city = (metadata.get('City') or 'Unknown City').strip() if metadata.get('City') else 'Unknown City'
+            grouped_items.setdefault(country, {}).setdefault(city, []).append({
+                'name': file_name,
+                'path': image_path,
+                'latitude': metadata.get('GPSLatitude'),
+                'longitude': metadata.get('GPSLongitude')
+            })
+
+            loaded_files_count += 1
+            progress_dialog.setValue(i)
+            QApplication.processEvents()
+
+        progress_dialog.close()
+
+        if progress_dialog.wasCanceled() and loaded_files_count == 0:
+            self.createAlert("Folder loading canceled.")
+            return
+
+        self._isUpdatingCheckState = True
+        for country_name in sorted(grouped_items.keys()):
+            country_item = QTreeWidgetItem(self.fileListWidget, [country_name, '', ''])
+            country_item.setFlags(country_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+            country_item.setCheckState(0, Qt.CheckState.Unchecked)
+
+            for city_name in sorted(grouped_items[country_name].keys()):
+                city_item = QTreeWidgetItem(country_item, [city_name, '', ''])
+                city_item.setFlags(city_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+                city_item.setCheckState(0, Qt.CheckState.Unchecked)
+
+                for image_data in grouped_items[country_name][city_name]:
+                    image_item = QTreeWidgetItem(city_item)
+                    image_item.setText(0, image_data['name'])
+                    image_item.setText(1, self._format_coordinate(image_data['latitude']))
+                    image_item.setText(2, self._format_coordinate(image_data['longitude']))
+                    image_item.setFlags(image_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    image_item.setCheckState(0, Qt.CheckState.Unchecked)
+                    image_item.setData(0, Qt.ItemDataRole.UserRole, image_data['path'])
+                    self.imageLeafItems.append(image_item)
+        self._isUpdatingCheckState = False
+
+        self.fileListWidget.expandAll()
         
         # Show the first image in the image view widget
-        if firstfile != None:
-            self.fileListWidget.setCurrentRow(0)
-            self.show_image(firstfile)
+        if self.imageLeafItems:
+            first_item = self.imageLeafItems[0]
+            self.fileListWidget.setCurrentItem(first_item)
+            self.show_image(first_item)
+
+    def on_file_item_clicked(self, item, column):
+        if self._is_image_item(item):
+            self.show_image(item)
+
+    def handle_file_item_changed(self, item, column):
+        if self._isUpdatingCheckState or column != 0:
+            return
+
+        # Parent checks should cascade to all descendants.
+        if item.childCount() > 0 and item.checkState(0) != Qt.CheckState.PartiallyChecked:
+            self._isUpdatingCheckState = True
+            self._set_descendants_check_state(item, item.checkState(0))
+            self._isUpdatingCheckState = False
+
+        # Force parent nodes to follow child state when all children match.
+        parent = item.parent()
+        while parent is not None:
+            checked_children = 0
+            partial_children = 0
+            child_count = parent.childCount()
+            for i in range(child_count):
+                state = parent.child(i).checkState(0)
+                if state == Qt.CheckState.Checked:
+                    checked_children += 1
+                elif state == Qt.CheckState.PartiallyChecked:
+                    partial_children += 1
+
+            self._isUpdatingCheckState = True
+            if checked_children == child_count:
+                parent.setCheckState(0, Qt.CheckState.Checked)
+            elif checked_children == 0 and partial_children == 0:
+                parent.setCheckState(0, Qt.CheckState.Unchecked)
+            else:
+                parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+            self._isUpdatingCheckState = False
+            parent = parent.parent()
+
+    def _is_image_item(self, item):
+        return bool(item and item.data(0, Qt.ItemDataRole.UserRole))
+
+    def _get_item_path(self, item):
+        if not item:
+            return None
+        return item.data(0, Qt.ItemDataRole.UserRole)
+
+    def _capture_list_refresh_context(self):
+        current_item = self.fileListWidget.currentItem()
+        selected_path = self._get_item_path(current_item)
+
+        if self.imageLeafItems:
+            first_item_path = self._get_item_path(self.imageLeafItems[0])
+            if first_item_path:
+                return os.path.dirname(first_item_path), selected_path
+
+        if selected_path:
+            return os.path.dirname(selected_path), selected_path
+
+        return None, None
+
+    def _refresh_image_list(self, folder_path, selected_path=None):
+        if not folder_path:
+            return
+
+        self.list_photos(folder_path)
+        if not selected_path:
+            return
+
+        for item in self.imageLeafItems:
+            if self._get_item_path(item) == selected_path:
+                self.fileListWidget.setCurrentItem(item)
+                self.show_image(item)
+                break
+
+    def _format_coordinate(self, value):
+        if value is None:
+            return ""
+        return f"{float(value):.6f}"
+
+    def _get_checked_image_items(self):
+        return [item for item in self.imageLeafItems if item.checkState(0) == Qt.CheckState.Checked]
+
+    def _set_descendants_check_state(self, item, state):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, state)
+            if child.childCount() > 0:
+                self._set_descendants_check_state(child, state)
 
     def show_image(self, item):
         """
@@ -305,11 +714,19 @@ class Window(QMainWindow, Ui_MainWindow):
         Returns:
         None
         """
+        if not self._is_image_item(item):
+            return
+
         # Get the full path of the selected image
-        image_path = item.data(1)
+        image_path = self._get_item_path(item)
         pixmap = QPixmap(image_path)
-        self.imageViewWidget.setPixmap(pixmap)
-        self.imageViewWidget.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center the image
+        if pixmap.isNull():
+            self._originalPixmap = None
+            self.imageViewWidget.clear()
+            return
+
+        self._originalPixmap = pixmap
+        self._update_image_preview()
 
         ##logic to show image in map
         metadata = get_image_metadata(image_path)
@@ -320,6 +737,26 @@ class Window(QMainWindow, Ui_MainWindow):
             self.set_image_location_and_aproximated_location(metadata,takeOutData)
         else:
             self.set_image_location(metadata)
+
+    def _update_image_preview(self):
+        if self._originalPixmap is None:
+            return
+
+        target_size = self.imageViewWidget.size()
+        if target_size.width() <= 0 or target_size.height() <= 0:
+            return
+
+        scaled_pixmap = self._originalPixmap.scaled(
+            target_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.imageViewWidget.setPixmap(scaled_pixmap)
+
+    def eventFilter(self, watched, event):
+        if watched is self.imageViewWidget and event.type() == QEvent.Type.Resize:
+            self._update_image_preview()
+        return super().eventFilter(watched, event)
 
     def set_image_location(self, metadata):
         """
@@ -343,10 +780,7 @@ class Window(QMainWindow, Ui_MainWindow):
             lng = metadata['GPSLongitude']
             originalCoordinates= (lat, lng)
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation({lat}, {lng}, 15);")
-            latRounded = round(lat, 8)
-            lngRounded  = round(lng, 8)
-            jscode = str(f"L.marker([{lat},{lng}], {{icon: newLocationIcon}}).addTo(map).bindPopup('Location: {latRounded}, {lngRounded}');")
-            self.mapViewWidget.page().runJavaScript(jscode)  # Add marker to the map with info
+            self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({lat}, {lng}, 'new');")
         else:
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation(0, 0, 2);")
 
@@ -361,15 +795,21 @@ class Window(QMainWindow, Ui_MainWindow):
             self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
             self.mapViewWidget.page().runJavaScript("closePopup();")
             global selectedCoordinates
+            global selectedLocationData
             # Set the image location on the map
             lat = closestLocation['Latitude']
             lng = closestLocation['Longitude']
             selectedCoordinates = (lat, lng)
+            selectedLocationData = None
             distanceInMinutes = round(closestLocation['DistanceInMinutes'], 2)
+            marker_extra = {
+                'selectedDateTime': closestLocation.get('DateTime'),
+                'distanceInMinutes': distanceInMinutes,
+            }
+            marker_extra_json = json.dumps(marker_extra)
             self.mapViewWidget.page().runJavaScript(f"updateMapLocation({lat}, {lng}, 15);")
-            timeDifferenceMessage = self.buildStringMessageOfTimeDifference(distanceInMinutes)
-            jscode = str(f"L.marker([{closestLocation['Latitude']},{closestLocation['Longitude']}], {{icon: calculatedLocation}}).addTo(map).bindPopup('{timeDifferenceMessage} Location: {round(closestLocation['Latitude'], 8)}, {round(closestLocation['Longitude'], 8)}');")
-            self.mapViewWidget.page().runJavaScript(jscode)
+            # Use the new function that fetches location data automatically
+            self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({lat}, {lng}, 'calculated', {marker_extra_json});")
 
 
     def select_folderTakeOutFile(self):
@@ -481,17 +921,16 @@ class Window(QMainWindow, Ui_MainWindow):
         self.mapViewWidget.page().runJavaScript("map.eachLayer(function(layer) { if (layer instanceof L.Marker) { map.removeLayer(layer); } });")
         self.mapViewWidget.page().runJavaScript("closePopup();")
 
-        latRounded = round(metadata['GPSLatitude'], 8)
-        lngRounded  = round(metadata['GPSLongitude'], 8)
-        jscode = str(f"L.marker([{metadata['GPSLatitude']},{metadata['GPSLongitude']}], {{icon: newLocationIcon}}).addTo(map).bindPopup('Location: {latRounded}, {lngRounded}');")
-        self.mapViewWidget.page().runJavaScript(jscode)  # Add marker to the map with info
+        # Add marker for original location with location data
+        self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({metadata['GPSLatitude']}, {metadata['GPSLongitude']}, 'new');")
 
-        
-        distanceInMinutes = round(closestLocation['DistanceInMinutes'], 2)
-        timeDifferenceMessage = self.buildStringMessageOfTimeDifference(distanceInMinutes)
-        jscode = str(f"L.marker([{closestLocation['Latitude']},{closestLocation['Longitude']}], {{icon: calculatedLocation}}).addTo(map).bindPopup('{timeDifferenceMessage} Location: {round(closestLocation['Latitude'], 8)}, {round(closestLocation['Longitude'], 8)}');")
-        self.mapViewWidget.page().runJavaScript(jscode)
-
+        # Add marker for calculated location with location data
+        marker_extra = {
+            'selectedDateTime': closestLocation.get('DateTime'),
+            'distanceInMinutes': round(closestLocation.get('DistanceInMinutes', 0), 2),
+        }
+        marker_extra_json = json.dumps(marker_extra)
+        self.mapViewWidget.page().runJavaScript(f"addMarkerWithLocationData({closestLocation['Latitude']}, {closestLocation['Longitude']}, 'calculated', {marker_extra_json});")
 
         #self.mapViewWidget.page().runJavaScript(f"updateMapLocation({previousCoordinates[0]}, {previousCoordinates[1]}, 15);")
 
@@ -515,9 +954,14 @@ class Window(QMainWindow, Ui_MainWindow):
             return f"The calculated location differs from the photos taken date by {int(minutes):02d} minutes."
   
 
-app = QApplication(sys.argv)
-window = Window()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(prog='photo-location-setter', usage='%(prog)s [dir]')
+    parser.add_argument('dir', nargs='?', help='Directory containing fotos to edit location information [optional].')
+    args = parser.parse_args()
 
-app.setStyle("Fusion")
-window.show()
-app.exec()
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+
+    window = Window(Path(args.dir))
+    window.show()
+    app.exec()
