@@ -11,7 +11,7 @@ from metadataHandler import get_image_metadata, apply_metadata_to_image
 from locationHistoryLoader import parse_json_file_v2, get_closest_location_v2, get_file_size
 from googleTakeOutSplitter import splitGoogleTakeOut
 from design import Ui_MainWindow
-from PyQt6.QtCore import QEvent, pyqtSignal, pyqtSlot, QObject, Qt
+from PyQt6.QtCore import QEvent, pyqtSignal, pyqtSlot, QObject, Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox, QTreeWidgetItem, QDialog
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtGui import QPixmap, QImageReader
@@ -103,6 +103,18 @@ class Window(QMainWindow, Ui_MainWindow):
         self.fileListWidget.itemChanged.connect(self.handle_file_item_changed)
 
         self.gpsFilesListWidget.itemClicked.connect(self.loadTakeOutFile)
+
+        QTimer.singleShot(0, self._load_initial_photo_dir)
+
+    def _load_initial_photo_dir(self):
+        if self.photo_dir is None:
+            return
+
+        if self.photo_dir.is_dir():
+            self.list_photos(str(self.photo_dir))
+            return
+
+        self.createAlert(f"Startup folder not found: {self.photo_dir}")
 
     
     def handle_applyToAllOutButton(self):
@@ -956,12 +968,14 @@ class Window(QMainWindow, Ui_MainWindow):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='photo-location-setter', usage='%(prog)s [dir]')
-    parser.add_argument('dir', nargs='?', help='Directory containing fotos to edit location information [optional].')
+    parser.add_argument('dir', nargs='?', help='Directory containing photos to edit location information [optional].')
+    parser.add_argument('--folder', help='Directory containing photos to edit location information.')
     args = parser.parse_args()
+    startup_dir = args.folder or args.dir
 
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
 
-    window = Window(Path(args.dir) if args.dir else None)
+    window = Window(Path(startup_dir).expanduser() if startup_dir else None)
     window.show()
     app.exec()
