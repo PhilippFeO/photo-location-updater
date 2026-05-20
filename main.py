@@ -962,6 +962,6 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
 
-    window = Window(Path(args.dir))
+    window = Window(Path(args.dir) if args.dir else None)
     window.show()
     app.exec()
