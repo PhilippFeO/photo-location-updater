@@ -968,10 +968,9 @@ class Window(QMainWindow, Ui_MainWindow):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='photo-location-setter', usage='%(prog)s [dir]')
-    parser.add_argument('dir', nargs='?', help='Directory containing photos to edit location information [optional].')
     parser.add_argument('--folder', help='Directory containing photos to edit location information.')
     args = parser.parse_args()
-    startup_dir = args.folder or args.dir
+    startup_dir = args.folder
 
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
