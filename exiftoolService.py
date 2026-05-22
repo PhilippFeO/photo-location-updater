@@ -68,7 +68,6 @@ class ExifToolService:
 
     @staticmethod
     def read_metadata(image_path):
-        print('>>>>>>>>>>>>>>>>>', image_path)
         output = ExifToolService._run_exiftool(
             [
                 '-j',
