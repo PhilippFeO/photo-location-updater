@@ -96,35 +96,6 @@ class ExifToolService:
         parsed = json.loads(output)
         return parsed[0] if parsed else {}
 
-    # @staticmethod
-    # def read_metadata(image_paths: list[str]):
-    #     output = ExifToolService._run_exiftool(
-    #         [
-    #             '-j',
-    #             '-n',
-    #             '-GPSLatitude',
-    #             '-GPSLongitude',
-    #             '-DateTimeOriginal',
-    #             '-SubSecDateTimeOriginal',
-    #             '-CreateDate',
-    #             '-DateCreated',
-    #             '-MediaCreateDate',
-    #             '-TrackCreateDate',
-    #             '-Keys:CreationDate',
-    #             '-ModifyDate',
-    #             '-FileCreateDate',
-    #             '-FileModifyDate',
-    #             '-City',
-    #             '-Country',
-    #             '-Country-PrimaryLocationName',
-    #             '-Country-PrimaryLocationCode',
-    #             '-XMP-iptcExt:LocationCreatedCountryCode',
-    #             *image_paths,  # <-- unpack all paths
-    #         ],
-    #     )
-    #
-    #     return json.loads(output) or []
-
     @staticmethod
     def write_gps_metadata(  # noqa: PLR0913
         image_path: str,
