@@ -3,24 +3,24 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+import platform
 
 
 class ExifToolService:
     @staticmethod
     def _get_exiftool_command():
-        # TODO(PhilippFeo): if-else regarding Unix/Windows <22-05-2026> 
+        if platform.system() == 'Windows':
+            project_dir = Path(Path.resolve(Path(__file__))).parent
+            local_candidates = [
+                project_dir / 'exiftoll.exe',
+                project_dir / 'exiftool.exe',
+                project_dir / 'exiftool-13.58_64' / 'exiftool.exe',
+            ]
 
-        # project_dir = Path(Path.resolve(Path(__file__))).parent
-        # local_candidates = [
-        #     project_dir / 'exiftoll.exe',
-        #     project_dir / 'exiftool.exe',
-        #     project_dir / 'exiftool-13.58_64' / 'exiftool.exe',
-        # ]
-        #
-        # for candidate in local_candidates:
-        #     if Path(candidate).is_file():
-        #         return candidate
-
+            for candidate in local_candidates:
+                if Path(candidate).is_file():
+                    return candidate
+        
         exiftool_cmd = shutil.which('exiftool') or shutil.which('exiftool.exe')
         if not exiftool_cmd:
             msg = (
